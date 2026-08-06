@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#111827" />
+    <meta
+      name="description"
+      content="Camo Mode 2 interactive browser prototype"
+    />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🦎</text></svg>"
+    />
+    <title>Camo Mode 2 — Playroom Prototype</title>
+  </head>
+  <body>
+    <main id="app" aria-label="Camo Mode 2 interactive scene">
+      <canvas id="scene" aria-label="Interactive 3D playroom"></canvas>
+
+      <section id="startup" class="startup" role="status" aria-live="polite">
+        <div class="startup__mark" aria-hidden="true">C</div>
+        <div>
+          <strong>Preparing the playroom</strong>
+          <span>Procedural stand-ins are ready while optional art loads.</span>
+        </div>
+      </section>
+
+      <header class="topbar">
+        <div class="brand" aria-label="Camo Mode 2">
+          <span class="brand__mark" aria-hidden="true">C</span>
+          <span><strong>Camo Mode 2</strong><small>Team demo playground</small></span>
+        </div>
+        <div id="asset-status" class="asset-status" data-testid="asset-status" role="status">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span>Fallback scene ready</span>
+        </div>
+      </header>
+
+      <aside class="controls-card" aria-label="Controls">
+        <div class="eyebrow">Controls</div>
+        <div class="control-row">
+          <div class="key-cluster" aria-hidden="true">
+            <kbd>↑</kbd>
+            <span><kbd>←</kbd><kbd>↓</kbd><kbd>→</kbd></span>
+          </div>
+          <span>Move &amp; explore<small>WASD works too</small></span>
+        </div>
+        <div class="control-row">
+          <kbd class="key-wide">E</kbd>
+          <span>Pick up / drop<small>When an object is near</small></span>
+        </div>
+      </aside>
+
+      <aside class="guide-card" aria-label="Camo guide placeholder">
+        <div class="guide-avatar" aria-hidden="true"><span>●</span><span>●</span></div>
+        <div>
+          <div class="eyebrow">Camo Guide</div>
+          <strong>Let’s look around!</strong>
+          <p>Find friends and discover something to carry.</p>
+        </div>
+        <span class="guide-tag">Guide bubble</span>
+      </aside>
+
+      <div id="world-labels" class="world-labels" aria-hidden="true"></div>
+
+      <section id="proximity" class="proximity" aria-live="polite" aria-atomic="true">
+        <div id="prompt-icon" class="prompt-icon" aria-hidden="true">✦</div>
+        <div>
+          <small id="prompt-kicker">Explore the room</small>
+          <strong id="prompt-text">Use the arrow keys to meet Camo and friends.</strong>
+        </div>
+        <kbd id="prompt-key" hidden>E</kbd>
+      </section>
+
+      <div class="vignette" aria-hidden="true"></div>
+      <section id="fatal-error" class="fatal-error" role="alert" hidden>
+        <strong>The 3D playroom couldn’t start.</strong>
+        <p id="fatal-error-message">Try refreshing in a browser with WebGL enabled.</p>
+      </section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
