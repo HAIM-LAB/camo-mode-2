@@ -33,4 +33,4 @@ At the end of generation, each GLB is cleared into a fresh Blender scene, import
 
 The `.blend` keeps the five assets in named collections and places them in a studio lineup; the player is deliberately turned around there to preview its third-person rear read while both friends face forward. Exported files are generated before those preview transforms and remain at their own local origins. The player's gold backpack, hood, and coral trousers provide its deliberate rear-view identity.
 
-Suggested runtime anchors are integration data rather than baked transforms: player `(-4,0,3)`, Friend A `(2,0,-1)`, Friend B `(3.5,0,-1)`, ball `(-1,0,1)`, and block `(0.5,0,1)`.
+Integrated runtime anchors are placement data rather than baked transforms: player `(-0.95,0,2.90)`, Friend A `(3.42,0,1.42)`, Friend B `(2.62,0,-5.35)`, ball `(-0.15,0,0.78)`, and block `(1.20,0,1.32)`. See [`docs/asset-contract.md`](../../docs/asset-contract.md) for the full room-aware composition, including Camo.

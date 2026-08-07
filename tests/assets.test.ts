@@ -1,8 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { Box3, BoxGeometry, Group, Mesh, MeshBasicMaterial, Vector3 } from 'three';
-import { normalizeModelPlacement } from '../src/assets';
+import { normalizeModelPlacement, shouldNormalizeModelPlacement } from '../src/assets';
 
 describe('optional asset placement', () => {
+  it('preserves the authored world origin for the asymmetric room and patio', () => {
+    expect(shouldNormalizeModelPlacement('room')).toBe(false);
+    expect(shouldNormalizeModelPlacement('camo')).toBe(true);
+    expect(shouldNormalizeModelPlacement('player')).toBe(true);
+  });
+
   it('does not alter scale or placement for a contract-compliant model', () => {
     const model = new Group();
     const geometry = new Mesh(new BoxGeometry(1, 1, 1), new MeshBasicMaterial());

@@ -46,9 +46,16 @@ export function normalizeModelPlacement(model: Object3D): void {
   model.updateMatrixWorld(true);
 }
 
+export function shouldNormalizeModelPlacement(id: AssetId): boolean {
+  // The room is authored directly in world coordinates. Its intentional,
+  // asymmetric backyard glimpse extends beyond the indoor footprint, so
+  // centering its aggregate bounds would shift every wall and furnishing.
+  return id !== 'room';
+}
+
 function prepareModel(model: Object3D, id: AssetId): Object3D {
   model.name = `optional-${id}`;
-  normalizeModelPlacement(model);
+  if (shouldNormalizeModelPlacement(id)) normalizeModelPlacement(model);
   model.traverse((child) => {
     if (child instanceof Mesh) {
       child.castShadow = id !== 'room';

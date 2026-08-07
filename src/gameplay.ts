@@ -7,12 +7,14 @@ import {
 } from './config';
 
 export type EntityKind = 'camo' | 'friend' | 'ball' | 'block';
+export type EntityLocation = 'indoors' | 'patio';
 
 export interface NearbyEntity {
   id: string;
   label: string;
   kind: EntityKind;
   position: Vector3;
+  location?: EntityLocation;
   carried?: boolean;
 }
 
@@ -152,8 +154,8 @@ export function promptFor(
   if (!nearby) {
     return {
       icon: '✦',
-      kicker: 'Explore the room',
-      text: 'Use the arrow keys to meet Camo and friends.',
+      kicker: 'Choose your next stop',
+      text: 'Meet the friend by the couch, visit the patio doorway, or keep playing.',
       action: false,
     };
   }
@@ -175,8 +177,18 @@ export function promptFor(
     return {
       entityId: nearby.id,
       icon: '♥',
-      kicker: 'Camo is nearby',
-      text: 'Your guide is ready for the next adventure.',
+      kicker: 'Camo’s starter bubble',
+      text: 'Arrow keys move. Press E by a toy. Visit either friend—or keep playing!',
+      action: false,
+    };
+  }
+
+  if (nearby.location === 'patio') {
+    return {
+      entityId: nearby.id,
+      icon: '☀',
+      kicker: `${nearby.label} • outside on patio`,
+      text: 'Pause at the doorway to meet this friend; the yard is a presentation stop.',
       action: false,
     };
   }
@@ -184,8 +196,8 @@ export function promptFor(
   return {
     entityId: nearby.id,
     icon: '☺',
-    kicker: `${nearby.label} is nearby`,
-    text: 'A friend to explore and play with!',
+    kicker: `${nearby.label} • inside by couch`,
+    text: 'Walk over to meet this friend, or choose the patio doorway next.',
     action: false,
   };
 }

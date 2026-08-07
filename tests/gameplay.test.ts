@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Vector3 } from 'three';
-import { PLAYER_SPAWN, ROOM_BOUNDS } from '../src/config';
+import { PLAYER_SPAWN, ROOM_BOUNDS, SCENE_ANCHORS } from '../src/config';
 import {
   NearbyEntity,
   PlayerController,
@@ -12,12 +12,43 @@ import {
 } from '../src/gameplay';
 
 const entities: NearbyEntity[] = [
-  { id: 'camo', label: 'Camo', kind: 'camo', position: new Vector3(-3, 0, -2) },
-  { id: 'friend-a', label: 'Friend A', kind: 'friend', position: new Vector3(2, 0, -1) },
-  { id: 'friend-b', label: 'Friend B', kind: 'friend', position: new Vector3(3.5, 0, -1) },
-  { id: 'ball', label: 'Ball', kind: 'ball', position: new Vector3(-1, 0, 1) },
-  { id: 'block', label: 'Building block', kind: 'block', position: new Vector3(0.5, 0, 1) },
+  { id: 'camo', label: 'Camo', kind: 'camo', position: SCENE_ANCHORS.camo },
+  {
+    id: 'friend-a',
+    label: 'Friend A',
+    kind: 'friend',
+    position: SCENE_ANCHORS.friendA,
+    location: 'indoors',
+  },
+  {
+    id: 'friend-b',
+    label: 'Friend B',
+    kind: 'friend',
+    position: SCENE_ANCHORS.friendB,
+    location: 'patio',
+  },
+  { id: 'ball', label: 'Ball', kind: 'ball', position: SCENE_ANCHORS.ball },
+  { id: 'block', label: 'Building block', kind: 'block', position: SCENE_ANCHORS.block },
 ];
+
+describe('integrated scene composition', () => {
+  it('starts Camo and the player together on the rug left of the coffee table', () => {
+    expect(PLAYER_SPAWN.x).toBeLessThan(0.35);
+    expect(SCENE_ANCHORS.camo.x).toBeLessThan(0.35);
+    expect(PLAYER_SPAWN.z).toBeGreaterThan(0.22);
+    expect(PLAYER_SPAWN.z).toBeLessThan(3.58);
+    expect(PLAYER_SPAWN.distanceTo(SCENE_ANCHORS.camo)).toBeLessThan(INITIAL_GUIDE_DISTANCE);
+  });
+
+  it('keeps the patio friend presentable from the indoor movement boundary', () => {
+    const doorwayStop = new Vector3(SCENE_ANCHORS.friendB.x, 0, ROOM_BOUNDS.minZ + 0.36);
+    const prompt = promptFor(doorwayStop, entities);
+    expect(prompt.kicker).toContain('outside on patio');
+    expect(prompt.text).toContain('doorway');
+  });
+});
+
+const INITIAL_GUIDE_DISTANCE = 1.55;
 
 describe('movement controls', () => {
   it('supports arrows and WASD with normalized diagonal movement', () => {
@@ -60,12 +91,12 @@ describe('movement controls', () => {
 
 describe('proximity and prompts', () => {
   it('sorts nearby scene anchors by planar distance', () => {
-    const nearby = entitiesByProximity(new Vector3(-1, 0, 0.8), entities);
+    const nearby = entitiesByProximity(new Vector3(-0.15, 0, 0.78), entities);
     expect(nearby.map((item) => item.id).slice(0, 2)).toEqual(['ball', 'block']);
   });
 
   it.each([
-    ['camo', 'guide'],
+    ['camo', 'starter'],
     ['friend-a', 'friend'],
     ['friend-b', 'friend'],
     ['ball', 'pick up'],
@@ -79,9 +110,9 @@ describe('proximity and prompts', () => {
 
 describe('pickup and drop', () => {
   it('selects the nearest eligible object and excludes characters', () => {
-    const player = new Vector3(-1.15, 0, 1);
+    const player = new Vector3(-0.3, 0, 0.78);
     expect(nearestPickup(player, entities)?.id).toBe('ball');
-    expect(nearestPickup(new Vector3(-3, 0, -2), entities)).toBeUndefined();
+    expect(nearestPickup(SCENE_ANCHORS.friendB, entities)).toBeUndefined();
   });
 
   it('offers a drop action while an object is carried', () => {

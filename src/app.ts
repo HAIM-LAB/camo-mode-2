@@ -41,6 +41,7 @@ interface SceneEntity extends NearbyEntity {
   root: Group;
   visual: Group;
   labelHeight: number;
+  worldLabel: string;
 }
 
 interface LabelBinding {
@@ -54,6 +55,7 @@ export interface DemoSnapshot {
   carried: string | null;
   prompt: string;
   assetModes: Record<AssetId, string>;
+  entities: Record<string, { x: number; z: number; location?: string }>;
 }
 
 declare global {
@@ -88,13 +90,24 @@ function wrapEntity(
   position: Vector3,
   fallback: Group,
   labelHeight: number,
+  options: { worldLabel?: string; location?: NearbyEntity['location'] } = {},
 ): SceneEntity {
   const root = new Group();
   root.name = id;
   root.position.copy(position);
   const visual = createVisualTarget(fallback, id);
   root.add(visual);
-  return { id, label, kind, position: root.position, root, visual, labelHeight };
+  return {
+    id,
+    label,
+    kind,
+    position: root.position,
+    root,
+    visual,
+    labelHeight,
+    worldLabel: options.worldLabel ?? label,
+    location: options.location,
+  };
 }
 
 function shortestAngleDelta(from: number, to: number): number {
@@ -153,7 +166,8 @@ export class CamoDemoApp {
         'friend',
         SCENE_ANCHORS.friendA,
         createFriendFallback(fallbackColors.friendA, fallbackColors.friendAAccent, 'friend-a'),
-        1.25,
+        1.62,
+        { worldLabel: 'INSIDE • FRIEND A', location: 'indoors' },
       ),
       wrapEntity(
         'friend-b',
@@ -161,7 +175,8 @@ export class CamoDemoApp {
         'friend',
         SCENE_ANCHORS.friendB,
         createFriendFallback(fallbackColors.friendB, fallbackColors.friendBAccent, 'friend-b'),
-        1.25,
+        1.62,
+        { worldLabel: 'PATIO • FRIEND B', location: 'patio' },
       ),
       wrapEntity('ball', 'Ball', 'ball', SCENE_ANCHORS.ball, createBallFallback(), 0.78),
       wrapEntity('block', 'Building block', 'block', SCENE_ANCHORS.block, createBlockFallback(), 0.88),
@@ -244,18 +259,20 @@ export class CamoDemoApp {
   }
 
   private configureLabels(): void {
-    const iconFor = (kind: NearbyEntity['kind']): string => {
-      if (kind === 'camo') return '♥';
-      if (kind === 'friend') return '☺';
-      if (kind === 'ball') return '●';
+    const iconFor = (entity: SceneEntity): string => {
+      if (entity.kind === 'camo') return '♥';
+      if (entity.location === 'patio') return '☀';
+      if (entity.kind === 'friend') return '☺';
+      if (entity.kind === 'ball') return '●';
       return '◆';
     };
 
     for (const entity of this.entities) {
       const element = document.createElement('div');
       element.className = `world-label world-label--${entity.kind}`;
+      if (entity.location) element.classList.add(`world-label--${entity.location}`);
       element.dataset.entity = entity.id;
-      element.innerHTML = `<span>${iconFor(entity.kind)}</span>${entity.label}`;
+      element.innerHTML = `<span>${iconFor(entity)}</span>${entity.worldLabel}`;
       this.labelsRoot.append(element);
       this.labels.push({ entity, element });
     }
@@ -320,6 +337,7 @@ export class CamoDemoApp {
       label: entity.label,
       kind: entity.kind,
       position: entity.root.position,
+      location: entity.location,
       carried: entity.carried,
     }));
   }
@@ -356,12 +374,13 @@ export class CamoDemoApp {
       projected.copy(entity.root.position);
       projected.y += entity.labelHeight;
       projected.project(this.camera);
+      const labelRange = entity.location === 'patio' ? 10 : 6.25;
       const visible =
         projected.z > -1 &&
         projected.z < 1 &&
         Math.abs(projected.x) < 1.08 &&
         Math.abs(projected.y) < 1.08 &&
-        distance < 6.25;
+        distance < labelRange;
       element.classList.toggle('world-label--visible', visible);
       if (visible) {
         element.style.transform = `translate(-50%, -50%) translate(${(projected.x * 0.5 + 0.5) * width}px, ${(-projected.y * 0.5 + 0.5) * height}px)`;
@@ -418,7 +437,7 @@ export class CamoDemoApp {
     const text = this.assetStatus.querySelector('span:last-child');
     if (!text) return;
     if (summary.complete < summary.total) {
-      text.textContent = `Fallback scene ready • checking art ${summary.complete}/${summary.total}`;
+      text.textContent = `Backups ready • loading approved art ${summary.complete}/${summary.total}`;
       return;
     }
     if (summary.loaded.length === 0) {
@@ -426,7 +445,9 @@ export class CamoDemoApp {
       this.assetStatus.classList.add('asset-status--fallback');
       return;
     }
-    text.textContent = `Ready • ${summary.loaded.length} custom, ${summary.fallback.length} fallback`;
+    text.textContent = summary.fallback.length === 0
+      ? `Ready • approved GLBs ${summary.loaded.length}/${summary.total}`
+      : `Ready • ${summary.loaded.length}/${summary.total} GLBs • ${summary.fallback.length} fallback`;
     this.assetStatus.classList.add('asset-status--ready');
   }
 
@@ -453,12 +474,27 @@ export class CamoDemoApp {
       ]),
     ) as Record<AssetId, string>;
 
+    const entities = Object.fromEntries(
+      this.entities.map((entity) => {
+        const worldPosition = entity.root.getWorldPosition(new Vector3());
+        return [
+          entity.id,
+          {
+            x: worldPosition.x,
+            z: worldPosition.z,
+            ...(entity.location ? { location: entity.location } : {}),
+          },
+        ] as const;
+      }),
+    );
+
     return {
       ready: this.ready,
       player: { x: this.player.position.x, z: this.player.position.z },
       carried: this.carried?.id ?? null,
       prompt: this.promptText.textContent ?? '',
       assetModes,
+      entities,
     };
   }
 }

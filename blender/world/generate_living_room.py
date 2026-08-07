@@ -29,12 +29,12 @@ GLB_PATH = REPO_ROOT / "public" / "assets" / "world" / "living-room.glb"
 ROOM_X = (-6.0, 6.0)
 ROOM_Z = (-4.5, 4.5)
 ANCHORS = {
-    "Camo": (-3.0, 0.0, -2.0),
-    "Friend_A": (2.0, 0.0, -1.0),
-    "Friend_B": (3.5, 0.0, -1.0),
-    "Ball": (-1.0, 0.0, 1.0),
-    "Block": (0.5, 0.0, 1.0),
-    "Player_Spawn": (-4.0, 0.0, 3.0),
+    "Camo": (-1.52, 0.0, 1.72),
+    "Friend_A": (3.42, 0.0, 1.42),
+    "Friend_B": (2.62, 0.0, -5.35),
+    "Ball": (-0.15, 0.0, 0.78),
+    "Block": (1.20, 0.0, 1.32),
+    "Player_Spawn": (-0.95, 0.0, 2.90),
 }
 
 COLLECTIONS: dict[str, bpy.types.Collection] = {}

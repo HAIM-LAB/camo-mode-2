@@ -7,14 +7,15 @@ export const ROOM_BOUNDS = Object.freeze({
   maxZ: 4.5,
 });
 
-export const PLAYER_SPAWN = new Vector3(-4, 0, 3);
+// Integrated against the authored rug, coffee table, couch, and patio opening.
+export const PLAYER_SPAWN = new Vector3(-0.95, 0, 2.9);
 
 export const SCENE_ANCHORS = Object.freeze({
-  camo: new Vector3(-3, 0, -2),
-  friendA: new Vector3(2, 0, -1),
-  friendB: new Vector3(3.5, 0, -1),
-  ball: new Vector3(-1, 0, 1),
-  block: new Vector3(0.5, 0, 1),
+  camo: new Vector3(-1.52, 0, 1.72),
+  friendA: new Vector3(3.42, 0, 1.42),
+  friendB: new Vector3(2.62, 0, -5.35),
+  ball: new Vector3(-0.15, 0, 0.78),
+  block: new Vector3(1.2, 0, 1.32),
 });
 
 export type AssetId =
