@@ -16,6 +16,8 @@
  * endpoint without touching dialogue code.
  */
 
+import { resolveFetch } from './providers/types';
+
 export type ModerationStage = 'child-turn' | 'character-reply';
 
 export interface ModerationContext {
@@ -129,7 +131,7 @@ export class ShieldModelModeration implements ModerationProvider {
 
   constructor(private readonly options: ShieldOptions = {}) {
     this.available = Boolean(options.endpoint);
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.fetchImpl = resolveFetch(options.fetchImpl);
   }
 
   async check(text: string, context: ModerationContext): Promise<ModerationVerdict> {

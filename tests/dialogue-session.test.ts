@@ -248,6 +248,62 @@ describe('streaming and the safety gate', () => {
     expect(personaById('camo').deflections).toContain(replies.at(-1));
     expect(replies.at(-1)).not.toMatch(/500|upstream|error/i);
   });
+
+  /**
+   * A provider that dies *after* it has already streamed usable text is the case
+   * live runs actually produce (a dropped connection, a token budget hit, an
+   * upstream 5xx mid-response). The child keeps the sentences that already
+   * arrived and the panel must not be left thinking forever.
+   */
+  it('keeps the text already streamed when the provider dies mid-reply', async () => {
+    const diesMidway: ChatBrain = {
+      id: 'flaky',
+      label: 'Flaky',
+      available: true,
+      defaultParams: { model: 'x', maxOutputTokens: 40 },
+      async *stream(_request: ChatRequest): AsyncGenerator<ChatChunk> {
+        yield { delta: 'Oh, hello there. ' };
+        yield { delta: 'I am glad you came over. ' };
+        throw new Error('upstream 503 mid-stream');
+      },
+    };
+
+    const { session, replies, sentences } = harness('camo', {
+      brain: diesMidway,
+      moderation: new NullModeration(),
+    });
+    await session.greet();
+
+    // What arrived before the failure is kept, and nothing leaks the error.
+    expect(sentences.length).toBeGreaterThan(0);
+    expect(replies.at(-1)).toContain('Oh, hello there.');
+    expect(replies.at(-1)).not.toMatch(/503|upstream|error/i);
+
+    // The panel is released rather than stranded on a thinking state.
+    expect(session.thinking).toBe(false);
+
+    // The transcript holds the partial reply, so the child can carry on talking.
+    expect(session.transcript.at(-1)?.role).toBe('character');
+  });
+
+  it('releases the panel when the provider fails before any text arrives', async () => {
+    const broken: ChatBrain = {
+      id: 'broken',
+      label: 'Broken',
+      available: true,
+      defaultParams: { model: 'x', maxOutputTokens: 10 },
+      // eslint-disable-next-line require-yield
+      async *stream(_request: ChatRequest): AsyncGenerator<ChatChunk> {
+        throw new Error('upstream 500');
+      },
+    };
+
+    const { session } = harness('camo', { brain: broken, moderation: new NullModeration() });
+    await session.greet();
+    await session.say('are you okay?');
+
+    expect(session.thinking).toBe(false);
+  });
 });
 
 describe('inspector view', () => {

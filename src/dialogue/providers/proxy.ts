@@ -13,6 +13,7 @@
 import {
   BrainRequestError,
   readServerSentEvents,
+  resolveFetch,
   type ChatBrain,
   type ChatChunk,
   type ChatRequest,
@@ -43,7 +44,7 @@ export class ProxyBrain implements ChatBrain {
     this.label = options.label;
     this.defaultParams = options.defaultParams;
     this.url = options.url ?? PROXY_CHAT_URL;
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.fetchImpl = resolveFetch(options.fetchImpl);
   }
 
   async *stream(request: ChatRequest): AsyncGenerator<ChatChunk> {
@@ -106,9 +107,10 @@ export const OFFLINE_CONFIG: RuntimeConfig = Object.freeze({
  * it means the proxy is not running, which is exactly the keyless case, so the
  * app falls back to the local mock and carries on.
  */
-export async function fetchRuntimeConfig(fetchImpl: typeof fetch = fetch): Promise<RuntimeConfig> {
+export async function fetchRuntimeConfig(fetchImpl?: typeof fetch): Promise<RuntimeConfig> {
   try {
-    const response = await fetchImpl('/__camo/config', { headers: { accept: 'application/json' } });
+    const request = resolveFetch(fetchImpl);
+    const response = await request('/__camo/config', { headers: { accept: 'application/json' } });
     if (!response.ok) return OFFLINE_CONFIG;
     const parsed = (await response.json()) as Partial<RuntimeConfig>;
     if (!parsed.brain || typeof parsed.brain.id !== 'string') return OFFLINE_CONFIG;

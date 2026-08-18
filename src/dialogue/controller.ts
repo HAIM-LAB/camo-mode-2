@@ -63,8 +63,19 @@ export interface DialogueSnapshot {
   characterId: string | null;
   nodeId: string | null;
   turns: number;
+  /** Edge id of the last edge that actually fired, or null if none has. */
   lastEdge: string | null;
+  /**
+   * How that same transition was decided. Reads `condition` or `classification`,
+   * never `stay` - a turn that held position produced no transition to describe.
+   */
   lastEdgeMethod: string | null;
+  /**
+   * How the most recent turn resolved, including `stay` when the graph held
+   * position. Kept separate from `lastEdgeMethod` so a held turn cannot be
+   * misread as the previous transition having fired with method `stay`.
+   */
+  lastTurnMethod: string | null;
   flags: Record<string, boolean>;
   variables: Record<string, number>;
   loadError: string | null;
@@ -236,7 +247,8 @@ export class DialogueController {
       nodeId: inspection?.nodeId ?? null,
       turns: inspection?.turnsInNode ?? 0,
       lastEdge: inspection?.lastEdge?.edgeId ?? null,
-      lastEdgeMethod: inspection?.lastDecision?.method ?? null,
+      lastEdgeMethod: inspection?.lastEdge?.method ?? null,
+      lastTurnMethod: inspection?.lastDecision?.method ?? null,
       flags: { ...this.sceneFlags, ...(inspection?.flags ?? {}) },
       variables: { ...(inspection?.variables ?? {}) },
       loadError: this.loadError ?? null,

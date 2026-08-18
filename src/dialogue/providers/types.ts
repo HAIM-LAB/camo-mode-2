@@ -100,6 +100,24 @@ export class BrainRequestError extends Error {
   }
 }
 
+/**
+ * Normalizes an injected or ambient `fetch` into something safe to store on an
+ * object.
+ *
+ * This is not a style preference. A bare `fetch` reference kept as a field and
+ * invoked as `this.fetchImpl(...)` is called with the *instance* as its receiver,
+ * and the browser's native `fetch` brand-checks that receiver: it throws
+ * `TypeError: Failed to execute 'fetch' on 'Window': Illegal invocation`. Node's
+ * undici `fetch` does not brand-check, so the same code passes server-side and in
+ * unit tests that inject a plain function, and fails only in a real browser
+ * against a real provider - which is exactly where it is most expensive to find.
+ *
+ * Binding once at construction removes the trap for every adapter.
+ */
+export function resolveFetch(fetchImpl?: typeof fetch): typeof fetch {
+  return fetchImpl ?? globalThis.fetch.bind(globalThis);
+}
+
 /** Drains a stream into one string. For classification, never for display. */
 export async function collect(stream: AsyncIterable<ChatChunk>): Promise<string> {
   let text = '';

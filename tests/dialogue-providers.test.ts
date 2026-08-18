@@ -305,3 +305,85 @@ describe('browser proxy brain', () => {
     expect(JSON.stringify(config)).not.toMatch(/sk-|gsk_|api[-_]?key/i);
   });
 });
+
+/**
+ * Regression guard for the defect that made every live browser conversation fail
+ * while every unit test passed.
+ *
+ * A bare `fetch` stored as a field and invoked as `this.fetchImpl(...)` is called
+ * with the adapter instance as its receiver. Browsers brand-check that receiver
+ * and throw `Illegal invocation`; Node's undici does not, so the bug was
+ * invisible to this suite and to `curl`, and only appeared against a real
+ * provider in a real page.
+ *
+ * These tests install a `globalThis.fetch` that brand-checks exactly the way a
+ * browser does, so the suite now fails the same way the browser did.
+ */
+describe('ambient fetch is bound before it is stored', () => {
+  /** Stands in for the browser's native, receiver-checked `fetch`. */
+  function installBrandCheckedFetch(body: string): { calls: number; restore: () => void } {
+    const original = globalThis.fetch;
+    const state = { calls: 0, restore: () => { globalThis.fetch = original; } };
+
+    function brandChecked(this: unknown): Promise<Response> {
+      if (this !== undefined && this !== globalThis) {
+        throw new TypeError("Failed to execute 'fetch' on 'Window': Illegal invocation");
+      }
+      state.calls += 1;
+      return Promise.resolve(new Response(body, { status: 200 }));
+    }
+
+    globalThis.fetch = brandChecked as unknown as typeof fetch;
+    return state;
+  }
+
+  it('lets ProxyBrain stream when it falls back to the ambient fetch', async () => {
+    const sse = 'data: {"delta":"Hi"}\n\nevent: done\ndata: {}\n\n';
+    const ambient = installBrandCheckedFetch(sse);
+    try {
+      const brain = new ProxyBrain({
+        id: 'proxy',
+        label: 'Proxy',
+        defaultParams: defaultParamsFor('mock'),
+      });
+      const text = await collect(
+        brain.stream({ system: 's', messages: [], task: 'dialogue', params: brain.defaultParams }),
+      );
+      expect(text).toBe('Hi');
+      expect(ambient.calls).toBe(1);
+    } finally {
+      ambient.restore();
+    }
+  });
+
+  it('lets fetchRuntimeConfig read the capability report with the ambient fetch', async () => {
+    const payload = JSON.stringify({
+      brain: { id: 'openai', label: 'OpenAI', model: 'gpt-4o-mini' },
+      voice: { available: false },
+      speechToText: { available: true, provider: 'whisper' },
+      moderation: { id: 'permissive' },
+    });
+    const ambient = installBrandCheckedFetch(payload);
+    try {
+      const config = await fetchRuntimeConfig();
+      expect(config.brain.id).toBe('openai');
+      expect(config.speechToText.provider).toBe('whisper');
+    } finally {
+      ambient.restore();
+    }
+  });
+
+  it('lets the server adapters use the ambient fetch', async () => {
+    const sse = 'data: {"choices":[{"delta":{"content":"ok"}}]}\n\ndata: [DONE]\n\n';
+    const ambient = installBrandCheckedFetch(sse);
+    try {
+      const brain = new OpenAIBrain({ apiKey: 'sk-test' });
+      const text = await collect(
+        brain.stream({ system: 's', messages: [], task: 'dialogue', params: brain.defaultParams }),
+      );
+      expect(text).toBe('ok');
+    } finally {
+      ambient.restore();
+    }
+  });
+});

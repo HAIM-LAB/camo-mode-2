@@ -313,3 +313,53 @@ describe('emotion state', () => {
     expect(salient).not.toContain('warmth');
   });
 });
+
+/**
+ * The smoke snapshot reports `lastEdge` (the last edge that actually fired) and
+ * `lastTurnMethod` (how the most recent turn resolved) as separate fields. Live
+ * runs showed why: a turn that holds position would otherwise be reported as the
+ * *previous* edge having fired with method "stay", which never happened.
+ */
+describe('a held turn does not rewrite the last transition', () => {
+  it('keeps lastEdge on the transition that fired and reports the stay separately', async () => {
+    const runtime = new StoryletRuntime(testGraph, createEmotionVector());
+
+    // Turn one: the classifier picks a permitted edge, so a transition happens.
+    const moved = await runtime.advance({
+      childUtterance: 'can I help?',
+      characterReply: 'hello',
+      classifier: async () => 'by-intent-a',
+    });
+    expect(moved.method).toBe('classification');
+    expect(runtime.lastEdge?.edgeId).toBe('by-intent-a');
+    expect(runtime.lastEdge?.method).toBe('classification');
+
+    // Turn two: from a terminal node nothing can fire, so the runtime stays.
+    const held = await runtime.advance({
+      childUtterance: 'anything else?',
+      characterReply: 'hm',
+      classifier: async () => 'by-intent-b',
+    });
+    expect(held.method).toBe('stay');
+    expect(held.edge).toBeUndefined();
+
+    // The transition record is untouched, and never carries the "stay" method.
+    expect(runtime.lastEdge?.edgeId).toBe('by-intent-a');
+    expect(runtime.lastEdge?.method).toBe('classification');
+    expect(runtime.lastDecision?.method).toBe('stay');
+  });
+
+  it('never records a transition whose method is "stay"', async () => {
+    const runtime = new StoryletRuntime(testGraph, createEmotionVector());
+    // A classifier that names an edge the graph does not permit must not move us.
+    const held = await runtime.advance({
+      childUtterance: 'something unrelated',
+      characterReply: 'hello',
+      classifier: async () => 'an-edge-that-does-not-exist',
+    });
+
+    expect(held.method).toBe('stay');
+    expect(runtime.lastEdge).toBeUndefined();
+    expect(runtime.nodeId).toBe('beat');
+  });
+});

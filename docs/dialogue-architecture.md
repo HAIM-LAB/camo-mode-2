@@ -386,7 +386,7 @@ load error). Every pre-existing field is unchanged.
 ## Testing
 
 ```sh
-npm test        # 135 tests
+npm test        # 151 tests
 npm run build
 ```
 
@@ -397,7 +397,71 @@ npm run build
 | `tests/dialogue-interpreter.test.ts` | Condition evaluation, the hybrid rule, every classifier failure path, effects, emotion decay |
 | `tests/dialogue-providers.test.ts` | Adapter selection, the interface across six implementations, wire formats, the LPU stubs, proxy behaviour |
 | `tests/dialogue-safety.test.ts` | Sentence gating, permissive defaults, shield contract and fail-closed |
-| `tests/dialogue-session.test.ts` | The full keyless pipeline through the example storylet, deflection paths, scene reactions |
+| `tests/dialogue-session.test.ts` | The full keyless pipeline through the example storylet, deflection paths, mid-stream provider failure, scene reactions |
+| `tests/server-voice.test.ts` | Transcription filename derivation, availability gating, ElevenLabs request shaping |
+
+---
+
+## Live-provider verification
+
+Run against real keys on 2026-08-18, Chrome at 1440 × 900, through
+`npm run dev` and the browser - not through `curl`, which cannot see the class of
+bug this pass found.
+
+### What was exercised
+
+| Check | Result |
+| --- | --- |
+| Startup line reports the selected brain | `camo dialogue: brain=anthropic voice=off stt=whisper` |
+| `CAMO_BRAIN=openai` switch | `brain=openai`; no code change, config only |
+| Streamed text in the panel | Live token deltas from OpenAI, sentence-gated |
+| Storylet progression | `approach → greeting → topic-raised → tension-surfaces → repair` |
+| Hybrid edge resolution | Both paths seen live: deterministic `condition` and real `classification` |
+| Emotion vector moves | Camo's `worry` 0.45 → 0.75, `joy` 0.60 → 0.45 across a conversation |
+| Child-turn safety hook | A phone number deflected in character; graph did not advance |
+| Provider failure | Anthropic's billing error produced a deflection, not an error; panel stayed usable |
+| Voice with no ElevenLabs key | Degrades silently; the mute control is hidden rather than offered broken |
+| Speech-to-text | Server reports `whisper` and transcribes correctly; the browser prefers Web Speech |
+| Leave and return | Panel closes, movement unblocked, and the character keeps its beat and flags |
+
+### Measured latency
+
+Time to first token through the full proxy path, five runs each, OpenAI
+`gpt-4o-mini` from a home connection:
+
+| Call | Median TTFT | Range | Median total |
+| --- | --- | --- | --- |
+| Dialogue turn | 691 ms | 462–1450 ms | 1103 ms |
+| Edge classification | 438 ms | 422–567 ms | 484 ms |
+
+The child sees first text at the dialogue TTFT; classification runs after the
+reply completes and does not delay reading. This is the number the Groq/Cerebras
+LPU path exists to beat, and it is the honest baseline to compare against.
+
+### The defect this pass existed to find
+
+Every live conversation failed before this run with
+`Failed to execute 'fetch' on 'Window': Illegal invocation`, and **nothing in the
+test suite or a `curl` probe could see it**: node's undici `fetch` does not
+brand-check its receiver, so a bare `fetch` stored as a field and called as
+`this.fetchImpl(...)` works everywhere except a real browser. Fixed centrally
+with `resolveFetch()` in `src/dialogue/providers/types.ts` and pinned by tests
+that install a receiver-checking `fetch` to reproduce browser behaviour.
+
+### How the key isolation was re-verified
+
+Both checks were re-run after touching `server/` and `src/dialogue/providers/`,
+this time against the captain's **real** key values rather than canaries:
+
+1. `npm run build`, then scan every built file for the literal key values, for
+   20-character fragments of them, and for the variable names, provider auth
+   headers (`x-api-key`, `xi-api-key`), and key prefixes (`sk-proj-`, `sk-ant-`).
+   Result: 10 files scanned, zero matches.
+2. In the running page, fetch the source of all 30 JavaScript modules the dev
+   server actually delivered and scan them for the same patterns plus the
+   provider hostnames. Result: zero matches.
+
+Keys reach only the node process. The browser sees `/__camo/*` URLs and text.
 
 ---
 
@@ -407,8 +471,10 @@ npm run build
   cast and must be replaced before any external showing.
 - **Cast names are provisional.** Friend A speaks as Nell and Friend B as Theo in
   dialogue, while the scene labels remain "Friend A"/"Friend B".
-- **The live-provider path is written and typed but has not been run against a
-  real key** — none was available in this environment. See the report for the
-  keys the captain needs to supply.
+- **Anthropic is configured but unusable on this account.** The key
+  authenticates; the account has no credit balance, so every call returns
+  HTTP 400 `credit balance is too low`. The adapter is otherwise unchanged and
+  shares its SSE reader with the verified OpenAI path. Re-run the live check
+  after topping up.
 - **The friends' graph is shorter than Camo's** by design; if the captain wants
   the disagreement explored in more depth, that is graph authoring, not code.

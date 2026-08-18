@@ -15,6 +15,7 @@
  */
 
 import type { PersonaVoice } from './persona';
+import { resolveFetch } from './providers/types';
 
 export const PROXY_VOICE_URL = '/__camo/voice';
 
@@ -103,7 +104,7 @@ export class VoicePlayer {
 
   private async playOne(item: QueueItem, generation: number): Promise<void> {
     try {
-      const fetchImpl = this.options.fetchImpl ?? fetch;
+      const fetchImpl = resolveFetch(this.options.fetchImpl);
       const response = await fetchImpl(this.options.url ?? PROXY_VOICE_URL, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },

@@ -18,6 +18,8 @@
  * needs no key, and it keeps the audio local.
  */
 
+import { resolveFetch } from './providers/types';
+
 export interface RecognitionCallbacks {
   /** Live text while the child is still speaking. May be revised. */
   onPartial?: (text: string) => void;
@@ -141,12 +143,15 @@ export class ProxySpeechRecognizer implements SpeechRecognizer {
 
   private recorder?: MediaRecorder;
   private stream?: MediaStream;
+  private readonly fetchImpl: typeof fetch;
 
   constructor(
     readonly available: boolean,
     private readonly url: string = PROXY_STT_URL,
-    private readonly fetchImpl: typeof fetch = fetch,
-  ) {}
+    fetchImpl?: typeof fetch,
+  ) {
+    this.fetchImpl = resolveFetch(fetchImpl);
+  }
 
   async start(callbacks: RecognitionCallbacks): Promise<void> {
     if (typeof MediaRecorder === 'undefined' || !navigator.mediaDevices) {

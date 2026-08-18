@@ -10,6 +10,7 @@
 import {
   BrainRequestError,
   readServerSentEvents,
+  resolveFetch,
   type ChatBrain,
   type ChatChunk,
   type ChatRequest,
@@ -37,7 +38,7 @@ export class OpenAICompatibleBrain implements ChatBrain {
     this.id = options.id;
     this.label = options.label;
     this.defaultParams = options.defaultParams;
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.fetchImpl = resolveFetch(options.fetchImpl);
   }
 
   async *stream(request: ChatRequest): AsyncGenerator<ChatChunk> {

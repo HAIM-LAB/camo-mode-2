@@ -9,6 +9,8 @@
  * network drops, the dialogue panel is unaffected - voice is an enhancement.
  */
 
+import { resolveFetch } from '../src/dialogue/providers/types';
+
 export interface VoiceRequest {
   text: string;
   voiceId: string;
@@ -23,14 +25,45 @@ export const DEFAULT_VOICE_MODEL = 'eleven_flash_v2_5';
 
 const ELEVENLABS_BASE = 'https://api.elevenlabs.io/v1';
 
+/**
+ * Upload filename for a recorded turn, derived from the browser's mime type.
+ *
+ * Both transcription APIs infer the container from the filename extension, and
+ * browsers do not agree on what MediaRecorder produces: Chrome gives
+ * `audio/webm`, Safari gives `audio/mp4`. Sending everything as `turn.webm`
+ * happens to work while Chrome is the only client and breaks quietly elsewhere.
+ */
+export function transcriptionFilename(mimeType: string): string {
+  const base = mimeType.split(';')[0].trim().toLowerCase();
+  const extension =
+    {
+      'audio/webm': 'webm',
+      'video/webm': 'webm',
+      'audio/mp4': 'mp4',
+      'audio/m4a': 'm4a',
+      'audio/x-m4a': 'm4a',
+      'audio/mpeg': 'mp3',
+      'audio/mp3': 'mp3',
+      'audio/wav': 'wav',
+      'audio/x-wav': 'wav',
+      'audio/wave': 'wav',
+      'audio/ogg': 'ogg',
+      'audio/flac': 'flac',
+    }[base] ?? 'webm';
+  return `turn.${extension}`;
+}
+
 export class ElevenLabsVoice {
   readonly available: boolean;
 
+  private readonly fetchImpl: typeof fetch;
+
   constructor(
     private readonly apiKey: string | undefined,
-    private readonly fetchImpl: typeof fetch = fetch,
+    fetchImpl?: typeof fetch,
   ) {
     this.available = Boolean(apiKey && apiKey.trim());
+    this.fetchImpl = resolveFetch(fetchImpl);
   }
 
   /** Returns the raw upstream response so the proxy can pipe it straight through. */
@@ -69,7 +102,7 @@ export class ElevenLabsVoice {
     if (!this.apiKey) throw new Error('ELEVENLABS_API_KEY is not set');
 
     const form = new FormData();
-    form.append('file', new Blob([audio as BlobPart], { type: mimeType }), 'turn.webm');
+    form.append('file', new Blob([audio as BlobPart], { type: mimeType }), transcriptionFilename(mimeType));
     form.append('model_id', 'scribe_v1');
 
     const response = await this.fetchImpl(`${ELEVENLABS_BASE}/speech-to-text`, {
@@ -90,18 +123,21 @@ export class ElevenLabsVoice {
 export class WhisperTranscriber {
   readonly available: boolean;
 
+  private readonly fetchImpl: typeof fetch;
+
   constructor(
     private readonly apiKey: string | undefined,
-    private readonly fetchImpl: typeof fetch = fetch,
+    fetchImpl?: typeof fetch,
   ) {
     this.available = Boolean(apiKey && apiKey.trim());
+    this.fetchImpl = resolveFetch(fetchImpl);
   }
 
   async transcribe(audio: Uint8Array, mimeType: string): Promise<string> {
     if (!this.apiKey) throw new Error('OPENAI_API_KEY is not set');
 
     const form = new FormData();
-    form.append('file', new Blob([audio as BlobPart], { type: mimeType }), 'turn.webm');
+    form.append('file', new Blob([audio as BlobPart], { type: mimeType }), transcriptionFilename(mimeType));
     form.append('model', 'whisper-1');
 
     const response = await this.fetchImpl('https://api.openai.com/v1/audio/transcriptions', {

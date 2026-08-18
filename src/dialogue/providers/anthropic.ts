@@ -5,6 +5,7 @@
 import {
   BrainRequestError,
   readServerSentEvents,
+  resolveFetch,
   type ChatBrain,
   type ChatChunk,
   type ChatRequest,
@@ -36,7 +37,7 @@ export class AnthropicBrain implements ChatBrain {
   constructor(private readonly options: AnthropicOptions) {
     this.defaultParams = options.defaultParams ?? ANTHROPIC_DEFAULT_PARAMS;
     this.baseUrl = options.baseUrl ?? 'https://api.anthropic.com';
-    this.fetchImpl = options.fetchImpl ?? fetch;
+    this.fetchImpl = resolveFetch(options.fetchImpl);
   }
 
   async *stream(request: ChatRequest): AsyncGenerator<ChatChunk> {
