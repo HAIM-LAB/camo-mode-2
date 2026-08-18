@@ -28,6 +28,17 @@ export interface PromptContent {
   kicker: string;
   text: string;
   action: boolean;
+  /** True when this entity can be talked to right now. */
+  talk?: boolean;
+}
+
+/**
+ * Flags a conversation has established, lifted into the scene so the room can
+ * stop pretending nothing happened. Never a score and never a nudge: the copy
+ * these unlock states a fact and hands the choice straight back.
+ */
+export interface SceneFlags {
+  [name: string]: boolean;
 }
 
 const MOVEMENT_KEYS = Object.freeze({
@@ -139,6 +150,7 @@ export function promptFor(
   playerPosition: Vector3,
   entities: readonly NearbyEntity[],
   carriedEntity?: NearbyEntity,
+  sceneFlags: SceneFlags = {},
 ): PromptContent {
   if (carriedEntity) {
     return {
@@ -173,6 +185,8 @@ export function promptFor(
     };
   }
 
+  const topicKnown = sceneFlags['topic-known'] === true;
+
   if (nearby.kind === 'camo') {
     return {
       entityId: nearby.id,
@@ -180,6 +194,7 @@ export function promptFor(
       kicker: 'Camo’s starter bubble',
       text: 'Arrow keys move. Press E by a toy. Visit either friend—or keep playing!',
       action: false,
+      talk: true,
     };
   }
 
@@ -188,8 +203,11 @@ export function promptFor(
       entityId: nearby.id,
       icon: '☀',
       kicker: `${nearby.label} • outside on patio`,
-      text: 'Pause at the doorway to meet this friend; the yard is a presentation stop.',
+      text: topicKnown
+        ? 'This is the friend who took the ball outside. Say hi, or don’t—up to you.'
+        : 'Pause at the doorway to meet this friend; the yard is a presentation stop.',
       action: false,
+      talk: true,
     };
   }
 
@@ -197,7 +215,10 @@ export function promptFor(
     entityId: nearby.id,
     icon: '☺',
     kicker: `${nearby.label} • inside by couch`,
-    text: 'Walk over to meet this friend, or choose the patio doorway next.',
+    text: topicKnown
+      ? 'This is the friend who stayed inside. Say hi, or don’t—up to you.'
+      : 'Walk over to meet this friend, or choose the patio doorway next.',
     action: false,
+    talk: true,
   };
 }

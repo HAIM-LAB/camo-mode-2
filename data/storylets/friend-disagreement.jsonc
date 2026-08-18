@@ -1,0 +1,215 @@
+// Shared by both friends. Each one brings their own side to the same beats,
+// which is the point: one graph, two very different conversations, because the
+// persona and the emotion vector differ, not the structure.
+//
+// Deliberately shorter than Camo's graph. The friends are the second thing a
+// child reaches, and a shorter arc means the disagreement lands without becoming
+// an interrogation.
+{
+  "id": "friend-disagreement",
+  "title": "A friend gives their side of the falling out",
+  "entryNode": "approach",
+
+  "variables": [
+    {
+      "name": "closeness",
+      "initial": 0.4,
+      "min": 0.0,
+      "max": 1.0,
+      "description": "How willing this friend is to keep talking to the child. Never shown to the child."
+    }
+  ],
+
+  "flags": [
+    {
+      "name": "side-heard",
+      "initial": false,
+      "description": "The child has heard this friend's version of what happened."
+    },
+    {
+      "name": "declined",
+      "initial": false,
+      "description": "This friend said not now. Recorded so the scene does not push."
+    }
+  ],
+
+  "nodes": [
+    {
+      "id": "approach",
+      "beatGoal": "work out whether you even want to talk to this child right now",
+      "constraints": [
+        "You are allowed to be short, distracted, or reluctant. You do not owe anyone a conversation.",
+        "Do not explain why you are in a mood."
+      ],
+      "edges": [
+        {
+          "id": "opens-up",
+          "to": "greeting",
+          "why": "most of the time a child standing there patiently is enough",
+          "when": {
+            "kind": "all",
+            "of": [
+              { "kind": "turnsInNode", "op": ">=", "value": 1 },
+              { "kind": "emotion", "dimension": "anger", "op": "<", "value": 0.75 }
+            ]
+          },
+          "effects": { "variables": [{ "name": "closeness", "delta": 0.1 }] }
+        },
+        {
+          "id": "too-angry",
+          "to": "withdrawal",
+          "why": "when they are this angry they say not now, and that has to be allowed to happen",
+          "when": {
+            "kind": "all",
+            "of": [
+              { "kind": "turnsInNode", "op": ">=", "value": 1 },
+              { "kind": "emotion", "dimension": "anger", "op": ">=", "value": 0.75 }
+            ]
+          },
+          "effects": { "flags": [{ "name": "declined", "value": true }] }
+        }
+      ]
+    },
+
+    {
+      "id": "greeting",
+      "beatGoal": "say hello and see what this child wants",
+      "constraints": [
+        "Do not launch into the argument. Wait to be asked, or for a natural gap.",
+        "Keep it to one thought."
+      ],
+      "edges": [
+        {
+          "id": "it-comes-out",
+          "to": "topic-raised",
+          "why": "it is the only thing on their mind; it surfaces whether or not it is asked for",
+          "when": { "kind": "turnsInNode", "op": ">=", "value": 2 }
+        },
+        {
+          "id": "child-asks",
+          "to": "topic-raised",
+          "why": "asked directly, they will tell it",
+          "when": {
+            "kind": "intent",
+            "description": "the child asks what happened, asks about the other friend, or asks why this friend seems upset"
+          },
+          "effects": { "variables": [{ "name": "closeness", "delta": 0.1 }] }
+        }
+      ]
+    },
+
+    {
+      "id": "topic-raised",
+      "beatGoal": "give your side of what happened, the way you actually remember it",
+      "constraints": [
+        "Tell it from your side. You are not being fair and you do not have to be.",
+        "Do not call the other friend a bad person. You are hurt, not cruel.",
+        "Do not ask the child to pick a side."
+      ],
+      "onEnter": {
+        "emotion": { "hurt": 0.2 },
+        "flags": [{ "name": "side-heard", "value": true }]
+      },
+      "edges": [
+        {
+          "id": "feelings-land",
+          "to": "tension-surfaces",
+          "why": "saying it out loud makes it sting again",
+          "when": { "kind": "turnsInNode", "op": ">=", "value": 1 }
+        }
+      ]
+    },
+
+    {
+      "id": "tension-surfaces",
+      "beatGoal": "let how much this actually hurt show, without performing it",
+      "constraints": [
+        "Do not resolve anything. You are still upset at the end of this beat.",
+        "Never tell the child what they should do.",
+        "If they want to leave or change the subject, that is fine."
+      ],
+      "onEnter": {
+        "emotion": { "hurt": 0.25, "joy": -0.2 }
+      },
+      "edges": [
+        {
+          "id": "runs-out",
+          "to": "deflection",
+          "why": "children do not stay in a hard feeling forever; after a few turns they move",
+          "when": { "kind": "turnsInNode", "op": ">=", "value": 3 }
+        },
+        {
+          "id": "child-comforts",
+          "to": "repair",
+          "why": "the child offered something kind; let it actually land",
+          "when": {
+            "kind": "intent",
+            "description": "the child says something kind, agrees that it sounds hard, offers to help, or suggests talking to the other friend"
+          },
+          "effects": {
+            "emotion": { "hurt": -0.25, "warmth": 0.3, "joy": 0.15 },
+            "variables": [{ "name": "closeness", "delta": 0.25 }]
+          }
+        },
+        {
+          "id": "child-moves-on",
+          "to": "deflection",
+          "why": "a change of subject from a child is a kindness of its own",
+          "when": {
+            "kind": "intent",
+            "description": "the child changes the subject, or suggests playing with the ball or the blocks"
+          },
+          "effects": {
+            "emotion": { "joy": 0.25, "hurt": -0.15 },
+            "variables": [{ "name": "closeness", "delta": 0.1 }]
+          }
+        }
+      ]
+    },
+
+    {
+      "id": "repair",
+      "beatGoal": "let the child's kindness land, and stop short of promising anything",
+      "constraints": [
+        "You are not suddenly fine. Feeling a bit better is enough.",
+        "Do not promise to make up with the other friend.",
+        "Do not thank the child for fixing it. They did not fix it."
+      ],
+      "onEnter": {
+        "emotion": { "warmth": 0.2 },
+        "variables": [{ "name": "closeness", "delta": 0.1 }]
+      },
+      "terminal": true,
+      "edges": []
+    },
+
+    {
+      "id": "deflection",
+      "beatGoal": "go along with the change of subject and be glad of it",
+      "constraints": [
+        "Do not bring the argument back up.",
+        "Be actually interested in whatever this is now."
+      ],
+      "onEnter": {
+        "emotion": { "joy": 0.2, "hurt": -0.1 }
+      },
+      "terminal": true,
+      "edges": []
+    },
+
+    {
+      "id": "withdrawal",
+      "beatGoal": "say clearly that you do not want to talk right now, and be kind about it",
+      "constraints": [
+        "Say not now in your own words. Do not explain yourself.",
+        "Do not make the child feel they did something wrong.",
+        "Do not invite them back later. That is a hook, and this beat does not have hooks."
+      ],
+      "onEnter": {
+        "emotion": { "anger": -0.2 }
+      },
+      "terminal": true,
+      "edges": []
+    }
+  ]
+}

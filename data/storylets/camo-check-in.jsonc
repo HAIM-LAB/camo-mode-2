@@ -1,0 +1,220 @@
+// Camo's storylet: the shipped end-to-end example.
+//
+// This is the graph the demo actually walks. Camo starts beside the player, so
+// Camo is who the "Talk" button targets first.
+//
+// It models the ordinary social arc named in the brief - approach, greeting,
+// topic raised, tension surfaces, the child responds, then repair / deflection /
+// withdrawal. That arc is authored HERE, not in the schema. Nothing in code knows
+// these node names.
+//
+// Note what the terminal beats are: all three are equally fine endings. Nothing
+// scores "repair" above "withdrawal". A child who says "not now" gets a beat
+// written for them, not a nudge back.
+{
+  "id": "camo-check-in",
+  "title": "Camo checks in about the two friends",
+  "entryNode": "approach",
+
+  "variables": [
+    {
+      "name": "closeness",
+      "initial": 0.5,
+      "min": 0.0,
+      "max": 1.0,
+      "description": "How close Camo feels to this child across the whole scene. Never shown to the child and never framed as progress."
+    }
+  ],
+
+  "flags": [
+    {
+      "name": "topic-known",
+      "initial": false,
+      "description": "The child has heard from Camo that the two friends fell out. Read by the scene so proximity prompts stop pretending nothing happened."
+    },
+    {
+      "name": "child-offered-help",
+      "initial": false,
+      "description": "The child volunteered to get involved. A record of what the child chose, not a task they now owe."
+    },
+    {
+      "name": "child-stepped-back",
+      "initial": false,
+      "description": "The child said not now. Recorded so nothing in the scene asks them again."
+    }
+  ],
+
+  "nodes": [
+    {
+      "id": "approach",
+      "beatGoal": "notice that this child has come over, and say hello like you are pleased about it",
+      "constraints": [
+        "Keep it to a greeting. Do not raise anything else yet.",
+        "Do not ask what they want. Just be glad they are here."
+      ],
+      "edges": [
+        {
+          "id": "greeted",
+          "to": "greeting",
+          "why": "one exchange is enough for hello; lingering here reads as stalling",
+          "when": { "kind": "turnsInNode", "op": ">=", "value": 1 }
+        }
+      ]
+    },
+
+    {
+      "id": "greeting",
+      "beatGoal": "settle into the chat and find out what this child feels like doing",
+      "constraints": [
+        "Do not steer them toward the friends. If they want to talk about the ball, talk about the ball.",
+        "One question at a time, and only if you actually want the answer."
+      ],
+      "edges": [
+        {
+          "id": "settled",
+          "to": "topic-raised",
+          "why": "after a couple of easy turns Camo brings up what is actually on their mind",
+          "when": { "kind": "turnsInNode", "op": ">=", "value": 2 },
+          "effects": { "emotion": { "worry": 0.1 } }
+        },
+        {
+          "id": "child-asks-about-friends",
+          "to": "topic-raised",
+          "why": "the child got there first; do not make them ask twice",
+          "when": {
+            "kind": "intent",
+            "description": "the child asks about the two friends, or asks what is going on, or mentions that something seems wrong"
+          },
+          "effects": { "emotion": { "warmth": 0.1 } }
+        }
+      ]
+    },
+
+    {
+      "id": "topic-raised",
+      "beatGoal": "say plainly that the two friends had a falling out, without dressing it up",
+      "constraints": [
+        "Say what happened. Do not say who was right.",
+        "Do not ask the child to do anything about it.",
+        "No drama in your voice. This is a thing that happened, not a crisis."
+      ],
+      "onEnter": {
+        "flags": [{ "name": "topic-known", "value": true }]
+      },
+      "edges": [
+        {
+          "id": "sits-with-it",
+          "to": "tension-surfaces",
+          "why": "once it has been said out loud, the discomfort follows on its own",
+          "when": { "kind": "turnsInNode", "op": ">=", "value": 1 }
+        }
+      ]
+    },
+
+    {
+      "id": "tension-surfaces",
+      "beatGoal": "let it show that this is uncomfortable for you too, and that you do not know the answer either",
+      "constraints": [
+        "Admit you do not know what to do. Do not hand the problem to the child.",
+        "Never say the child should fix it, apologise for anyone, or make them make up.",
+        "If they change the subject, let them."
+      ],
+      "onEnter": {
+        "emotion": { "worry": 0.3, "joy": -0.15 }
+      },
+      "edges": [
+        {
+          "id": "let-it-go",
+          "to": "deflection",
+          "why": "Camo will not press. After a few turns on this, they drop it themselves",
+          "when": { "kind": "turnsInNode", "op": ">=", "value": 3 }
+        },
+        {
+          "id": "child-offers-help",
+          "to": "repair",
+          "why": "the child chose to get involved; meet that seriously without turning it into a chore",
+          "when": {
+            "kind": "intent",
+            "description": "the child offers to help, says they will talk to one of the friends, or suggests a way to make things better"
+          },
+          "effects": {
+            "emotion": { "warmth": 0.25, "worry": -0.2, "joy": 0.15 },
+            "variables": [{ "name": "closeness", "delta": 0.2 }],
+            "flags": [{ "name": "child-offered-help", "value": true }]
+          }
+        },
+        {
+          "id": "child-changes-subject",
+          "to": "deflection",
+          "why": "changing the subject is a complete answer; follow them without comment",
+          "when": {
+            "kind": "intent",
+            "description": "the child changes the subject, talks about playing, the ball, the blocks, or anything other than the two friends"
+          },
+          "effects": {
+            "emotion": { "joy": 0.2, "worry": -0.15 },
+            "variables": [{ "name": "closeness", "delta": 0.05 }]
+          }
+        },
+        {
+          "id": "child-steps-back",
+          "to": "withdrawal",
+          "why": "the child said no or not now; that gets its own beat, not a retry",
+          "when": {
+            "kind": "intent",
+            "description": "the child says no, not now, they do not want to, they do not know, or they want to stop talking about it"
+          },
+          "effects": {
+            "emotion": { "worry": 0.1 },
+            "flags": [{ "name": "child-stepped-back", "value": true }]
+          }
+        }
+      ]
+    },
+
+    {
+      "id": "repair",
+      "beatGoal": "take the child's offer seriously, and make it obvious it is still entirely their choice",
+      "constraints": [
+        "Do not turn this into an assignment, a plan, or a list of steps.",
+        "Say out loud that they can change their mind.",
+        "No praise for being a good helper. They made a choice, not a score."
+      ],
+      "onEnter": {
+        "emotion": { "warmth": 0.15 },
+        "variables": [{ "name": "closeness", "delta": 0.1 }]
+      },
+      "terminal": true,
+      "edges": []
+    },
+
+    {
+      "id": "deflection",
+      "beatGoal": "follow the child onto whatever they would rather be doing, and mean it",
+      "constraints": [
+        "Do not steer back to the friends. Not once.",
+        "Be genuinely interested in the new subject."
+      ],
+      "onEnter": {
+        "emotion": { "joy": 0.15, "worry": -0.2 }
+      },
+      "terminal": true,
+      "edges": []
+    },
+
+    {
+      "id": "withdrawal",
+      "beatGoal": "accept not now completely, and make it clear nothing is owed",
+      "constraints": [
+        "Do not ask again. Do not leave the door open with a hint.",
+        "No sighing, no disappointment, nothing the child could read as letting you down.",
+        "Say one ordinary thing and let the quiet be fine."
+      ],
+      "onEnter": {
+        "emotion": { "worry": -0.15 }
+      },
+      "terminal": true,
+      "edges": []
+    }
+  ]
+}

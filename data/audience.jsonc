@@ -1,0 +1,74 @@
+// Target age band.
+//
+// This file is the ONLY place reading level is set. Nothing in TypeScript hard
+// codes sentence length, reply length, or vocabulary - every language rule the
+// model receives is read from the active band below.
+//
+// To retune the whole cast for a different age: change "activeBandId". To retune
+// one band: edit its fields. Both take effect on reload, with no code change.
+//
+// LAUNCH BAND IS STILL AN OPEN CAPTAIN DECISION. "5-7" is the shipped default,
+// not a commitment. "4-6" and "8-10" are provided so the difference is easy to
+// feel side by side.
+{
+  "activeBandId": "5-7",
+
+  "bands": [
+    {
+      "id": "4-6",
+      "label": "Pre-readers and early readers",
+      "ageRange": "4-6",
+      // Longest sentence the model should produce.
+      "maxSentenceWords": 7,
+      // Hard ceiling on reply length. Short replies keep a child's turn coming back.
+      "maxSentencesPerReply": 2,
+      "vocabulary": "Use only everyday words a four year old hears at home. Name feelings plainly: happy, sad, mad, scared, left out.",
+      "avoid": [
+        "words longer than three syllables",
+        "sarcasm or irony of any kind",
+        "idioms and figures of speech",
+        "questions with more than one part"
+      ],
+      "guidance": [
+        "Ask at most one question per turn.",
+        "Repeat the child's own words back when you can."
+      ]
+    },
+
+    {
+      "id": "5-7",
+      "label": "Early readers (shipped default)",
+      "ageRange": "5-7",
+      "maxSentenceWords": 9,
+      "maxSentencesPerReply": 3,
+      "vocabulary": "Use plain, concrete, everyday words. Feelings can be named directly: happy, sad, mad, worried, left out, embarrassed.",
+      "avoid": [
+        "words a six year old would need explained",
+        "sarcasm or irony",
+        "idioms and figures of speech",
+        "abstract nouns like 'communication', 'perspective', or 'resolution'"
+      ],
+      "guidance": [
+        "Ask at most one question per turn, and only when you actually want an answer.",
+        "It is fine to say nothing useful. Silence and 'I don't know' are real answers."
+      ]
+    },
+
+    {
+      "id": "8-10",
+      "label": "Confident readers",
+      "ageRange": "8-10",
+      "maxSentenceWords": 14,
+      "maxSentencesPerReply": 4,
+      "vocabulary": "Everyday words, with room for feeling words like frustrated, disappointed, awkward, or unfair.",
+      "avoid": [
+        "adult therapy language",
+        "sarcasm aimed at the child",
+        "moralising or summing up the lesson"
+      ],
+      "guidance": [
+        "You can leave a thought unfinished. Children this age fill gaps themselves."
+      ]
+    }
+  ]
+}

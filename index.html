@@ -70,7 +70,69 @@
           <small id="prompt-kicker">Camo’s starter bubble</small>
           <strong id="prompt-text">Arrow keys move. Press E by a toy. Visit either friend—or keep playing!</strong>
         </div>
+        <button id="talk-button" class="talk-button" type="button" hidden>
+          <span id="talk-label">Talk</span><kbd aria-hidden="true">T</kbd>
+        </button>
         <kbd id="prompt-key" hidden>E</kbd>
+      </section>
+
+      <section
+        id="dialogue"
+        class="dialogue"
+        role="dialog"
+        aria-labelledby="dialogue-speaker"
+        hidden
+      >
+        <header class="dialogue__head">
+          <div id="dialogue-avatar" class="dialogue__avatar" aria-hidden="true">
+            <span>●</span><span>●</span>
+          </div>
+          <div class="dialogue__who">
+            <span class="eyebrow">Talking with</span>
+            <strong id="dialogue-speaker">Camo</strong>
+          </div>
+          <div class="dialogue__tools">
+            <button
+              id="dialogue-mute"
+              class="icon-button"
+              type="button"
+              aria-pressed="false"
+              title="Turn the voice off"
+            >
+              <span aria-hidden="true">🔊</span>
+              <span class="visually-hidden">Turn the voice off</span>
+            </button>
+            <button id="dialogue-leave" class="leave-button" type="button">
+              Leave<kbd aria-hidden="true">Esc</kbd>
+            </button>
+          </div>
+        </header>
+
+        <div id="dialogue-log" class="dialogue__log" role="log" aria-live="polite"></div>
+
+        <form id="dialogue-form" class="dialogue__form" autocomplete="off">
+          <button
+            id="dialogue-mic"
+            class="icon-button icon-button--mic"
+            type="button"
+            aria-pressed="false"
+            title="Speak instead of typing"
+            hidden
+          >
+            <span aria-hidden="true">🎤</span>
+            <span class="visually-hidden">Speak instead of typing</span>
+          </button>
+          <label class="visually-hidden" for="dialogue-input">Say something</label>
+          <input
+            id="dialogue-input"
+            class="dialogue__input"
+            type="text"
+            maxlength="220"
+            placeholder="Say something…"
+            enterkeyhint="send"
+          />
+          <button id="dialogue-send" class="send-button" type="submit">Say it</button>
+        </form>
       </section>
 
       <div class="vignette" aria-hidden="true"></div>

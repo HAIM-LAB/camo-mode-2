@@ -1,0 +1,170 @@
+// ============================================================================
+// STORYLET TEMPLATE - copy me
+// ============================================================================
+//
+// A storylet is an authored map of how a social interaction normally moves
+// forward. Nodes are BEATS. Edges are how one beat hands off to the next.
+//
+// The single most important thing to understand: THE MODEL NEVER SEES THIS FILE.
+// It is shown one node at a time - the beat goal and constraints for wherever the
+// character is standing right now, and nothing else. It cannot see the other
+// nodes, the edges, or where the conversation could go. That bound is what keeps
+// a small open model on the rails.
+//
+// How to use this file:
+//   1. Copy it to  data/storylets/<your-graph>.jsonc
+//   2. Fill in every "" and every 0. Delete the example nodes and write your own.
+//   3. Point a persona at it via that persona's "storyletId".
+//   4. Reload. Validation names the file, the field, and what was expected, and
+//      it checks referential integrity: every edge target must be a real node,
+//      every variable and flag must be declared before it is used.
+//
+// This file itself is INTENTIONALLY BLANK and will not validate. It lives in
+// data/templates/ which the loader does not read, so leaving it blank is safe.
+//
+// The shipped example (data/storylets/camo-check-in.jsonc) models the ordinary
+// social arc - approach, greeting, topic raised, tension surfaces, the child
+// responds, then repair / deflection / withdrawal. That is ONE arc, not THE arc.
+// Nothing in the schema knows about it. Author whatever shape you need.
+// ============================================================================
+{
+  // Lower-case kebab-case. Personas reference this graph by this id.
+  "id": "",
+
+  // Human title. Shown in the debug inspector.
+  "title": "",
+
+  // Which node the conversation starts on. Must be one of the nodes below.
+  "entryNode": "",
+
+  // ---------------------------------------------------------------------------
+  // VARIABLES - numbers that outlive any single beat.
+  //
+  // These are RELATIONSHIP STATE, not points. They are never shown to the child,
+  // never framed as progress, and nothing is unlocked by them. They exist so a
+  // conversation can leave a mark, and so edges can branch on that mark.
+  // ---------------------------------------------------------------------------
+  "variables": [
+    {
+      "name": "",         // lower-case kebab-case
+      "initial": 0.0,
+      "min": 0.0,
+      "max": 0.0,
+      "description": ""   // what this number means. At least 8 characters.
+    }
+  ],
+
+  // ---------------------------------------------------------------------------
+  // FLAGS - booleans that outlive any single beat. Same rules as variables.
+  // ---------------------------------------------------------------------------
+  "flags": [
+    {
+      "name": "",
+      "initial": false,
+      "description": ""
+    }
+  ],
+
+  // ---------------------------------------------------------------------------
+  // NODES - the beats.
+  // ---------------------------------------------------------------------------
+  "nodes": [
+    {
+      "id": "",
+
+      // What the character is TRYING TO DO in this beat, in one line. This goes
+      // straight into the prompt, so write it as a goal, not a script:
+      //   good: "find out whether the child wants company right now"
+      //   bad:  "say hello and ask how they are"
+      // At least 12 characters.
+      "beatGoal": "",
+
+      // Hard limits for this beat. Also goes straight into the prompt. Use this
+      // to say what NOT to do - it is more effective than more goal text.
+      // At least one.
+      "constraints": [""],
+
+      // Optional. Applied when the character ARRIVES at this node.
+      "onEnter": {
+        // Emotion nudges. Additive, then clamped to 0..1. -1.0 to 1.0.
+        // Dimensions: joy, hurt, anger, worry, warmth, energy.
+        "emotion": {},
+
+        // Variable changes. Each entry uses exactly ONE of "delta" or "set".
+        "variables": [],
+
+        // Flag changes.
+        "flags": []
+      },
+
+      // Optional. Applied when the character LEAVES this node. Same shape.
+      "onExit": {},
+
+      // Set true for a beat the conversation can rest in. Terminal nodes are the
+      // only ones allowed to have no edges.
+      "terminal": false,
+
+      // ---------------------------------------------------------------------
+      // EDGES - how this beat hands off.
+      //
+      // Resolution is HYBRID, and the order is not negotiable:
+      //
+      //   1. Every edge whose condition can be decided from game state is
+      //      evaluated first, IN THE ORDER LISTED HERE. First true one wins.
+      //      No model call happens.
+      //   2. Only if none matched do "intent" edges fall through to a small
+      //      constrained classification call.
+      //   3. The classifier is offered ONLY this node's intent edges. If it
+      //      answers with anything else, answers nothing, or fails, the
+      //      conversation STAYS ON THIS NODE. It never guesses.
+      //
+      // So: put your deterministic safety nets in this list, and reach for
+      // "intent" only when you genuinely need to read what the child meant.
+      // ---------------------------------------------------------------------
+      "edges": [
+        {
+          "id": "",   // unique within this node
+          "to": "",   // must be a real node id in this file
+
+          // Why this edge exists, in your words. Shown verbatim in the debug
+          // inspector when it fires, so write it for your future self.
+          // At least 8 characters.
+          "why": "",
+
+          // ---- CONDITION -----------------------------------------------------
+          // Pick ONE "kind". Deterministic kinds:
+          //
+          //   { "kind": "always" }
+          //       Fires immediately. Useful for a beat that is pure setup.
+          //
+          //   { "kind": "turnsInNode", "op": ">=", "value": 2 }
+          //       Exchanges spent on this node. The standard "do not get stuck
+          //       here" safety net. op is one of < <= == != >= >
+          //
+          //   { "kind": "variable", "name": "", "op": ">=", "value": 0.0 }
+          //   { "kind": "emotion", "dimension": "hurt", "op": ">=", "value": 0.6 }
+          //   { "kind": "flag", "name": "", "value": true }
+          //
+          //   { "kind": "all", "of": [ ... ] }   every child must be true
+          //   { "kind": "any", "of": [ ... ] }   at least one child true
+          //   { "kind": "not", "of": { ... } }
+          //
+          // The one non-deterministic kind:
+          //
+          //   { "kind": "intent", "description": "..." }
+          //       Needs a classification call. "description" is what the
+          //       classifier is told to look for in the child's words - write it
+          //       as an observable behaviour, not a feeling:
+          //         good: "the child offers to talk to the other friend"
+          //         bad:  "the child is being kind"
+          //       At least 10 characters.
+          "when": { "kind": "always" },
+
+          // Optional. Applied ON THE TRANSITION, between the old node's onExit
+          // and the new node's onEnter. Same shape as onEnter above.
+          "effects": {}
+        }
+      ]
+    }
+  ]
+}

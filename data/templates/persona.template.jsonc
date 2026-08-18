@@ -1,0 +1,199 @@
+// ============================================================================
+// PERSONA TEMPLATE - copy me
+// ============================================================================
+//
+// How to use this file:
+//   1. Copy it to  data/personas/<your-character>.jsonc
+//   2. Fill in every "" and every 0.0. Nothing here is optional except "voice".
+//   3. Reload the app. If something is missing or malformed, the browser console
+//      and `npm test` name the file, the exact field, and what was expected.
+//
+// This file itself is INTENTIONALLY BLANK and will not validate. It lives in
+// data/templates/ which the loader does not read, so leaving it blank is safe.
+//
+// Comments and trailing commas are allowed (.jsonc). Everything else is strict
+// JSON, so a typo is still a loud error rather than a silent default.
+// ============================================================================
+{
+  // Lower-case kebab-case. Other files reference the character by this id.
+  "id": "",
+
+  // The scene entity this persona speaks for. Must match an entity id in the 3D
+  // scene: currently "camo", "friend-a", or "friend-b".
+  "entityId": "",
+
+  // The storylet graph that governs this character's beats. Must match the "id"
+  // of a file in data/storylets/. Several characters may share one graph.
+  "storyletId": "",
+
+  // ---------------------------------------------------------------------------
+  // IDENTITY - who they are and how they sound. Fixed; never changes in play.
+  // ---------------------------------------------------------------------------
+  "identity": {
+    // Spoken name. Appears in the dialogue panel and in the prompt.
+    "name": "",
+
+    // Whole number. Shapes how the model pitches their reasoning.
+    "age": 0,
+
+    // A few sentences. What happened to them before this scene, what they like,
+    // who they are attached to. Concrete beats abstract: "keeps a jar of bottle
+    // caps" tells a model more than "is a collector". At least 20 characters.
+    "background": "",
+
+    // What this character is FOR in this scene, in one line. The guide? One side
+    // of the disagreement? A bystander? At least 10 characters.
+    "roleInScene": "",
+
+    // Speech texture. This is what stops every character sounding the same.
+    "speech": {
+      // How wide their vocabulary is and what kind of words they reach for.
+      "vocabularyLevel": "",
+
+      // Typical rhythm, e.g. "short - four to eight words, often trailing off".
+      "sentenceLength": "",
+
+      // Verbal tics: filler words, catchphrases, a habitual sound. Keep to two or
+      // three; more than that reads as a gimmick. May be empty: [].
+      "verbalTics": [],
+
+      // Things this character NEVER says. At least one. This is the most useful
+      // field in the file - it is how you keep a character from drifting into
+      // generic-helpful-assistant voice.
+      "neverSays": [""]
+    }
+  },
+
+  // ---------------------------------------------------------------------------
+  // PERSONALITY - OCEAN traits. Fixed; never changes in play.
+  //
+  // "value" is 0.0 to 1.0. The model is NEVER shown these numbers. The prompt
+  // builder bands each value (very low / low / moderate / high / very high) and
+  // turns it into a concrete behavioural instruction, then appends your note.
+  //
+  // "note" is your sentence about how the trait shows up in THIS character.
+  // Write it as a statement about them, e.g. "Ana would rather be wrong than
+  // argue." At least 8 characters.
+  // ---------------------------------------------------------------------------
+  "traits": {
+    // Curiosity, imagination, appetite for the new.
+    "openness": { "value": 0.0, "note": "" },
+
+    // Orderliness, follow-through, care about doing it properly.
+    "conscientiousness": { "value": 0.0, "note": "" },
+
+    // Sociability, talkativeness, comfort taking up space.
+    "extraversion": { "value": 0.0, "note": "" },
+
+    // Warmth, cooperation, willingness to yield. Low is not "mean" - it is
+    // "will say the uncomfortable thing".
+    "agreeableness": { "value": 0.0, "note": "" },
+
+    // Emotional volatility. High means upsets land hard and linger.
+    "neuroticism": { "value": 0.0, "note": "" }
+  },
+
+  // ---------------------------------------------------------------------------
+  // EMOTION BASELINE - how they are when nothing has happened yet.
+  //
+  // Distinct from traits: these MOVE during play. Storylet effects nudge them,
+  // and every turn they drift back toward the baselines set here. 0.0 to 1.0,
+  // 0.5 is neutral. All six are required.
+  //
+  // Watch these live in the debug inspector (backtick key, or ?debug=1).
+  // ---------------------------------------------------------------------------
+  "emotionBaseline": {
+    "joy": 0.0,     // bright and playful <-> flat
+    "hurt": 0.0,    // feels wronged <-> does not
+    "anger": 0.0,   // frustrated and clipped <-> not
+    "worry": 0.0,   // anxious and checking <-> settled
+    "warmth": 0.0,  // open with this child <-> guarded. Decays slowest: it is a
+                    // relationship, not a mood.
+    "energy": 0.0   // bouncy and fast <-> tired and quiet
+  },
+
+  // ---------------------------------------------------------------------------
+  // VOICE - optional. Remove this whole block for a silent character.
+  // Text always works without it; voice is an enhancement, never a dependency.
+  // ---------------------------------------------------------------------------
+  "voice": {
+    // ElevenLabs voice id. Per persona, so each character sounds distinct.
+    "voiceId": "",
+
+    // Optional overrides. Omit to use the server defaults.
+    // "modelId": "eleven_flash_v2_5",
+    // "stability": 0.5,
+    // "similarityBoost": 0.75,
+    // "speed": 1.0
+  },
+
+  // ---------------------------------------------------------------------------
+  // BOUNDARIES - hard rules for THIS character, added verbatim to every prompt.
+  //
+  // The product-wide rules (the child may leave, no scores, no correct answer,
+  // characters may decline) are already applied to everyone in code. Use this for
+  // what is specific to this character. At least one.
+  // ---------------------------------------------------------------------------
+  "boundaries": [""],
+
+  // ---------------------------------------------------------------------------
+  // DEFLECTIONS - what this character says when the safety gate blocks a turn.
+  //
+  // The child never sees an error or a moderation notice; the character simply
+  // moves the moment along in their own voice. Write these so they would pass
+  // unnoticed in an ordinary conversation. At least two.
+  // ---------------------------------------------------------------------------
+  "deflections": ["", ""],
+
+  // ---------------------------------------------------------------------------
+  // SCENE REACTIONS - optional. Mood shifts applied BEFORE the first word, from
+  // what is true in the room right now.
+  //
+  // This is the seam between the 3D scene and the dialogue layer. Walking up to
+  // someone while carrying the thing they fell out over is not the same as
+  // walking up empty-handed, and this is where you say so.
+  //
+  // "when" must be one of:
+  //   "carrying-ball"     the child is holding the ball
+  //   "carrying-block"    the child is holding the building block
+  //   "carrying-nothing"  the child's hands are empty
+  //   "topic-known"       the child has already heard about the falling out
+  //   "first-meeting"     this is the first conversation with this character
+  //   "returning"         they have talked to this character before
+  //
+  // Every matching reaction is applied. Remove the block entirely for a
+  // character who greets the child the same way every time.
+  // ---------------------------------------------------------------------------
+  "sceneReactions": [
+    {
+      "when": "carrying-nothing",
+      "emotion": {},   // e.g. { "warmth": 0.1, "anger": -0.05 }
+      "note": ""       // why, in your words. Shown in the debug inspector.
+    }
+  ],
+
+  // ---------------------------------------------------------------------------
+  // OFFLINE LINES - what this character says when NO API key is configured.
+  //
+  // Keyed by storylet node id. The keyless mock brain picks from the list for the
+  // node it is standing on, cycling in order, so `npm run dev` with an empty .env
+  // still walks a coherent conversation. A live provider never sees these.
+  //
+  // Cover every node in your storylet. A node with no lines falls back to a
+  // neutral holding line, which is honest but dull.
+  // ---------------------------------------------------------------------------
+  "offlineLines": {
+    // "node-id": ["First time in this beat.", "Second time.", "Third time."]
+  },
+
+  // ---------------------------------------------------------------------------
+  // OFFLINE INTENTS - how the keyless mock brain classifies the child's turn.
+  //
+  // Keyed by node id, then by edge id, listing words that should fire that edge.
+  // Matching is case-insensitive substring, first edge listed wins. Used ONLY by
+  // the mock brain; a real classifier reads the edge's "description" instead.
+  // ---------------------------------------------------------------------------
+  "offlineIntents": {
+    // "node-id": { "edge-id": ["word", "another phrase"] }
+  }
+}

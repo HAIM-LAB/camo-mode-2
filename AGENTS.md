@@ -3,7 +3,10 @@
 This file is the project's committed home for project-intrinsic agent knowledge: build, test, release, architecture, and sharp-edge notes that should travel with the code.
 
 - Asset coordinates and integration rules: `docs/asset-contract.md`.
-- Authoritative local start: `npm install && npm run dev`.
+- Conversational-agent layer - provider interfaces, persona/storylet schemas, authoring templates, key/proxy model, safety seam: `docs/dialogue-architecture.md`.
+- Authoritative local start: `npm install && npm run dev`. It must keep working with **no API keys present**; the keyless mock brain is the default path, not a fallback to fix later.
+- API keys are read server-side only, in `server/`. Never name a secret `VITE_*` and never read one from `src/`. After touching `server/` or `src/dialogue/providers/`, re-run the leak check in `docs/dialogue-architecture.md`.
+- Authored content (personas, storylets, age bands) lives in `data/*.jsonc`, never in TypeScript. `data/templates/` is blank by design and is deliberately outside every loader glob.
 
 ## Maintaining this file
 

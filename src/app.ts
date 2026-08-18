@@ -21,9 +21,16 @@ import {
   SCENE_ANCHORS,
 } from './config';
 import {
+  DialogueCandidate,
+  DialogueController,
+  DialogueSnapshot,
+} from './dialogue/controller';
+import {
   NearbyEntity,
   PlayerController,
+  SceneFlags,
   dropPosition,
+  entitiesByProximity,
   nearestPickup,
   promptFor,
 } from './gameplay';
@@ -56,6 +63,8 @@ export interface DemoSnapshot {
   prompt: string;
   assetModes: Record<AssetId, string>;
   entities: Record<string, { x: number; z: number; location?: string }>;
+  /** Added by the conversational-agent layer; the fields above are unchanged. */
+  dialogue: DialogueSnapshot;
 }
 
 declare global {
@@ -139,6 +148,8 @@ export class CamoDemoApp {
   private readonly keys = new Set<string>();
   private readonly cameraTarget = new Vector3();
   private readonly desiredCameraPosition = new Vector3();
+  private readonly dialogue: DialogueController;
+  private readonly sceneFlags: SceneFlags = {};
   private carried?: SceneEntity;
   private lastPromptSignature = '';
   private ready = false;
@@ -182,6 +193,19 @@ export class CamoDemoApp {
       wrapEntity('block', 'Building block', 'block', SCENE_ANCHORS.block, createBlockFallback(), 0.88),
     ];
 
+    this.dialogue = new DialogueController({
+      getCandidate: () => this.talkCandidate(),
+      getSceneState: () => ({
+        carried: this.carried?.kind === 'ball' ? 'ball' : this.carried?.kind === 'block' ? 'block' : null,
+      }),
+      onSceneFlagsChanged: (flags) => {
+        Object.assign(this.sceneFlags, flags);
+        // Force the next frame to re-render the prompt with the new world state.
+        this.lastPromptSignature = '';
+      },
+      onFocusCaptured: () => this.keys.clear(),
+    });
+
     this.configureScene();
     this.configureInput();
     this.configureLabels();
@@ -195,6 +219,7 @@ export class CamoDemoApp {
     this.clock.start();
     this.animationFrame = requestAnimationFrame(this.renderFrame);
     void this.loadOptionalAssets();
+    void this.dialogue.init();
   }
 
   stop(): void {
@@ -247,15 +272,31 @@ export class CamoDemoApp {
         key === 'a' ||
         key === 's' ||
         key === 'd' ||
-        key === 'e'
+        key === 'e' ||
+        key === 't'
       ) {
         event.preventDefault();
       }
       if (key === 'e' && !event.repeat) this.toggleCarry();
+      if (key === 't' && !event.repeat) this.dialogue.open();
       this.keys.add(key);
     });
     window.addEventListener('keyup', (event) => this.keys.delete(event.key.toLowerCase()));
     window.addEventListener('blur', () => this.keys.clear());
+  }
+
+  /**
+   * The nearest character the child could talk to. Props are excluded: a ball is
+   * for carrying. The panel's own key handling stops these listeners from firing
+   * while the child is typing, so movement is never trapped.
+   */
+  private talkCandidate(): DialogueCandidate | undefined {
+    const nearby = entitiesByProximity(this.player.position, this.nearbyEntities()).find(
+      (entity) => entity.kind === 'camo' || entity.kind === 'friend',
+    );
+    return nearby
+      ? { entityId: nearby.id, label: nearby.label, distance: nearby.distance }
+      : undefined;
   }
 
   private configureLabels(): void {
@@ -293,6 +334,7 @@ export class CamoDemoApp {
     this.player.update(this.keys, delta);
     this.updatePlayer(delta);
     this.updateCamera(delta);
+    this.dialogue.update();
     this.updatePrompt();
     this.updateLabels();
     this.animateFallbacks(delta);
@@ -343,7 +385,12 @@ export class CamoDemoApp {
   }
 
   private updatePrompt(): void {
-    const prompt = promptFor(this.player.position, this.nearbyEntities(), this.carried);
+    const prompt = promptFor(
+      this.player.position,
+      this.nearbyEntities(),
+      this.carried,
+      this.sceneFlags,
+    );
     const signature = `${prompt.entityId ?? 'none'}:${prompt.text}:${prompt.action}`;
     if (signature === this.lastPromptSignature) return;
     this.lastPromptSignature = signature;
@@ -495,6 +542,7 @@ export class CamoDemoApp {
       prompt: this.promptText.textContent ?? '',
       assetModes,
       entities,
+      dialogue: this.dialogue.snapshot(),
     };
   }
 }
