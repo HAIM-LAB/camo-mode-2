@@ -1134,15 +1134,20 @@ body[data-screen='customize'] #app > :not(.menu) {
 }
 
 .customize {
-  grid-template-columns: minmax(0, 1fr) minmax(400px, 540px);
-  grid-template-rows: minmax(0, 1fr);
-  gap: 24px;
+  grid-template-areas:
+    'head panel'
+    'stage panel';
+  /* Wide enough that every card's corner check clears its picture. */
+  grid-template-columns: minmax(0, 1fr) minmax(400px, 620px);
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 16px 24px;
   padding: 24px;
 }
 
 .customize__stage {
   position: relative;
   min-height: 0;
+  grid-area: stage;
 }
 
 /* A soft spotlight grounds the character on the transparent preview canvas. */
@@ -1195,8 +1200,9 @@ body[data-screen='customize'] #app > :not(.menu) {
 .customize__panel {
   display: grid;
   align-self: center;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 26px;
+  grid-area: panel;
+  grid-template-rows: minmax(0, 1fr) auto;
+  gap: 22px;
   min-height: 0;
   max-height: 100%;
   padding: 24px 28px 28px;
@@ -1211,6 +1217,7 @@ body[data-screen='customize'] #app > :not(.menu) {
   display: flex;
   align-items: center;
   gap: 16px;
+  grid-area: head;
 }
 
 .customize__head h2 {
@@ -1224,8 +1231,9 @@ body[data-screen='customize'] #app > :not(.menu) {
 
 .customize__axes {
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-content: start;
-  gap: 24px;
+  gap: 18px 20px;
   /* Room for selection rings and focus outlines inside the scroll box. */
   margin: -8px;
   overflow-y: auto;
@@ -1237,24 +1245,31 @@ body[data-screen='customize'] #app > :not(.menu) {
 }
 
 .look-axis {
+  grid-column: 1 / -1;
   min-width: 0;
   margin: 0;
   padding: 0;
   border: 0;
 }
 
+/* Two-choice axes share a row on wide screens. */
+.look-axis--pair {
+  grid-column: auto;
+}
+
 .look-axis legend {
   float: left;
   width: 100%;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
   padding: 0;
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 800;
 }
 
 .look-axis__options {
   display: grid;
   clear: both;
+  grid-template-columns: repeat(var(--columns, 3), minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -1309,13 +1324,9 @@ body[data-screen='customize'] #app > :not(.menu) {
   font-weight: 900;
 }
 
-.look-axis--swatch .look-axis__options {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-}
-
 .look-axis--swatch .look-option {
   width: 100%;
-  max-width: 76px;
+  max-width: 68px;
   aspect-ratio: 1;
   justify-self: center;
   border-radius: 50%;
@@ -1343,43 +1354,59 @@ body[data-screen='customize'] #app > :not(.menu) {
   margin: auto;
 }
 
-.look-axis--card .look-axis__options {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.look-axis--card .look-option {
-  --pill-width: 76px;
+:is(.look-axis--card, .look-axis--icon) .look-option {
+  --pill-width: 72px;
   display: grid;
   justify-items: center;
-  gap: 10px;
-  padding: 16px 8px 14px;
+  gap: 8px;
+  padding: 12px 6px 10px;
   border: 3px solid rgba(23, 32, 51, 0.08);
   border-radius: 22px;
   background: #fff;
   box-shadow: 0 3px 8px rgba(23, 32, 51, 0.07);
 }
 
-.look-axis--card .look-option:hover {
+:is(.look-axis--card, .look-axis--icon) .look-option:hover {
   border-color: rgba(32, 115, 88, 0.35);
 }
 
 /* Selection changes only colors: the border width is constant, so nothing moves. */
-.look-axis--card .look-option:has(input:checked) {
+:is(.look-axis--card, .look-axis--icon) .look-option:has(input:checked) {
   border-color: var(--mint-dark);
   background: #eaf8f0;
 }
 
 .look-axis--card .look-option__swatch {
   width: var(--pill-width);
-  height: 42px;
+  height: 38px;
   border-radius: 14px;
   box-shadow: inset 0 0 0 2px rgba(23, 32, 51, 0.06);
 }
 
-/* On a card the check rides the color pill's top-right corner. */
-.look-axis--card .look-option:has(input:checked)::after {
+.look-axis--icon .look-option {
+  --pill-width: 52px;
+}
+
+.look-axis--icon .look-option__swatch {
+  width: var(--pill-width);
+  height: 46px;
+  overflow: visible;
+}
+
+.look-axis--icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* On a card the check sits in the card's own corner, clear of its picture. */
+:is(.look-axis--card, .look-axis--icon) .look-option:has(input:checked)::after {
   top: 6px;
-  left: calc(50% + var(--pill-width) / 2 - 16px);
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  border-width: 2px;
+  font-size: 12px;
 }
 
 /* Hoodie first and widest, then trousers and backpack. */
@@ -1388,8 +1415,13 @@ body[data-screen='customize'] #app > :not(.menu) {
 }
 
 .look-option__name {
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 800;
+  white-space: nowrap;
+}
+
+.look-axis--pair .look-option__name {
+  font-size: 16px;
 }
 
 @keyframes mascot-bob {
@@ -1398,8 +1430,12 @@ body[data-screen='customize'] #app > :not(.menu) {
 
 @media (max-width: 760px) {
   .customize {
+    grid-template-areas:
+      'head'
+      'stage'
+      'panel';
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(240px, 36vh) auto;
+    grid-template-rows: auto minmax(240px, 34vh) auto;
     gap: 12px;
     padding: 12px 16px 16px;
   }
@@ -1422,6 +1458,10 @@ body[data-screen='customize'] #app > :not(.menu) {
 
   .customize__axes {
     overflow: visible;
+  }
+
+  .look-axis--pair {
+    grid-column: 1 / -1;
   }
 
   .customize__hint {

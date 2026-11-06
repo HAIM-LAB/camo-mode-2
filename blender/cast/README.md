@@ -30,7 +30,8 @@ At the end of generation, each GLB is cleared into a fresh Blender scene, import
 - Characters are approximately 1.4 m tall.
 - Ball diameter is 0.34 m. Block dimensions are approximately 0.30 × 0.24 × 0.295 m including studs.
 - Materials use vertex geometry and embedded glTF material values only.
-- The player's material names are runtime API: character customization repaints them by name. See [`docs/asset-contract.md`](../../docs/asset-contract.md#player-customization).
+- The player's material and part names are runtime API: character customization repaints materials and shows part sets (hair, skirt, head scarf) by name. See [`docs/asset-contract.md`](../../docs/asset-contract.md#player-customization).
+- `player.glb` carries every alternative part set; the lineup render hides all but the runtime default (boy hair, trousers, beanie).
 
 The `.blend` keeps the five assets in named collections and places them in a studio lineup; the player is deliberately turned around there to preview its third-person rear read while both friends face forward. Exported files are generated before those preview transforms and remain at their own local origins. The player's gold backpack, hood, and coral trousers provide its deliberate rear-view identity.
 

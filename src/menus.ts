@@ -1,12 +1,17 @@
+import { LOOK_ICONS } from './look-icons';
 import { LookPreview } from './look-preview';
 import {
   LOOK_AXES,
   LookAxis,
   LookAxisId,
   PlayerLook,
+  lookPaint,
   savePlayerLook,
   surfaceColor,
 } from './player-look';
+
+/** Two-choice axes that share one row on wide screens. */
+const PAIRED_AXES: ReadonlySet<string> = new Set(['bottoms', 'headwear']);
 
 export type Screen = 'start' | 'customize' | 'game' | 'error';
 
@@ -46,6 +51,7 @@ export class MenuFlow {
   constructor(private readonly options: MenuFlowOptions) {
     this.look = options.look;
     this.renderAxes();
+    this.paintIcons();
     this.startPlay.addEventListener('click', () => this.showCustomize());
     this.back.addEventListener('click', () => this.showStart());
     this.play.addEventListener('click', () => this.finish());
@@ -85,16 +91,27 @@ export class MenuFlow {
     this.look = { ...this.look, [axis]: option };
     savePlayerLook(this.look);
     this.preview?.setLook(this.look);
+    this.paintIcons();
+  }
+
+  /** Keeps the picture cards in the child's current skin and outfit colors. */
+  private paintIcons(): void {
+    for (const [role, surface] of Object.entries(lookPaint(this.look))) {
+      if (surface) this.axesRoot.style.setProperty(`--paint-${role}`, surfaceColor(surface));
+    }
   }
 
   private renderAxes(): void {
     for (const axis of LOOK_AXES as readonly LookAxis[]) {
       const fieldset = document.createElement('fieldset');
       fieldset.className = `look-axis look-axis--${axis.display}`;
+      fieldset.classList.toggle('look-axis--pair', PAIRED_AXES.has(axis.id));
       const legend = document.createElement('legend');
       legend.textContent = axis.label;
       const options = document.createElement('div');
       options.className = 'look-axis__options';
+      const columns = axis.display === 'swatch' ? axis.options.length : Math.min(axis.options.length, 3);
+      options.style.setProperty('--columns', String(columns));
 
       for (const option of axis.options) {
         const label = document.createElement('label');
@@ -110,15 +127,18 @@ export class MenuFlow {
         const swatch = document.createElement('span');
         swatch.className = 'look-option__swatch';
         swatch.setAttribute('aria-hidden', 'true');
-        for (const role of axis.swatchRoles) {
+        if (option.icon) {
+          swatch.innerHTML = LOOK_ICONS[option.icon] ?? '';
+        }
+        for (const role of axis.swatchRoles ?? []) {
           const band = document.createElement('i');
-          const surface = option.paint[role];
+          const surface = option.paint?.[role];
           band.style.background = surface ? surfaceColor(surface) : 'transparent';
           swatch.append(band);
         }
 
         const name = document.createElement('span');
-        name.className = axis.display === 'card' ? 'look-option__name' : 'visually-hidden';
+        name.className = axis.display === 'swatch' ? 'visually-hidden' : 'look-option__name';
         name.textContent = option.label;
         label.append(input, swatch, name);
         options.append(label);

@@ -21,4 +21,15 @@ The player and Camo start together on the rug, left of the coffee table; Friend 
 
 ## Player customization
 
-The character menu repaints `player.glb` at runtime by material name: `Player Skin` and `Player Skin Light` carry the skin tone; `Ink` (eyes) and `Smile` (mouth) deepen on darker tones so the face stays readable; `Player Teal`, `Player Teal Dark`, `Player Coral`, `Player Gold`, and `Player Gold Dark` carry the outfit. When regenerating the player, keep those names on the parts they color today. `tests/player-look.test.ts` fails if a name disappears. The default look reproduces the authored colors, so a player who never customizes sees the approved art unchanged.
+The character menu customizes `player.glb` at runtime by name, so these names are API. Keep them on the parts they cover today when regenerating the player; `tests/player-look.test.ts` loads the real file and fails if one disappears.
+
+Materials, repainted by name:
+- `Player Skin` and `Player Skin Light` carry the skin tone. `Ink` (eyes) and `Smile` (mouth) deepen on the darker tones so the face stays readable.
+- `Player Teal`, `Player Teal Dark`, `Player Coral`, `Player Gold`, and `Player Gold Dark` carry the outfit. `Player Scarf`, `Player Scarf Dark`, and `Player Skirt` follow it: the head scarf takes the beanie's colors and the skirt the hood's.
+
+Part sets, shown or hidden by node-name prefix (one shared body; see `add_player_variants()` in `blender/cast/generate_cast.py`):
+- `player_hair_boy_*` and `player_hair_girl_*`: Boy and Girl differ only in hair. `player_hair_back` is shared.
+- `player_skirt*`: a knee-length skirt over the trouser legs.
+- `player_beanie_*` and `player_scarf_*`: headwear. The head scarf also hides every `player_hair_*`, the `player_ear_*` parts, and `player_hoodie_hood`.
+
+All parts export together, so the player's bounds include the head scarf (1.44 m tall). The default look is Boy, trousers, and beanie in the authored colors: the approved art plus the boy's fringe.

@@ -12,7 +12,14 @@ npm install && npm run dev
 
 Open [http://localhost:4173](http://localhost:4173). Vite also prints a network URL for testing on another device.
 
-The game opens on a start menu. **Play** leads to character customization, where the child picks a skin tone and an outfit on a live preview of their character; **Let's play!** enters the playroom wearing that look. The choice is saved in the browser's `localStorage` and never leaves the machine.
+The game opens on a start menu. **Play** leads to character customization on a live preview of the child's character:
+- Boy or girl, which changes only the hair;
+- skin tone;
+- outfit colors;
+- trousers or skirt;
+- beanie or head scarf.
+
+**Let's play!** enters the playroom wearing that look. The choice is saved in the browser's `localStorage` and never leaves the machine.
 
 For development, add `?skipMenu=1` (for example [http://localhost:4173/?skipMenu=1](http://localhost:4173/?skipMenu=1)) to skip both menus and load straight into the playroom with the saved or default look.
 
