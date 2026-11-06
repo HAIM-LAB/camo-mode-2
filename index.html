@@ -136,6 +136,37 @@
       </section>
 
       <div class="vignette" aria-hidden="true"></div>
+
+      <!-- Menus run before the playroom is built; body[data-screen] picks which one shows. -->
+      <section id="start-menu" class="menu start-menu" aria-labelledby="start-title">
+        <div class="start-menu__card">
+          <div class="start-menu__mascot" aria-hidden="true"><span>●</span><span>●</span></div>
+          <h1 id="start-title" class="start-menu__title">Camo Mode 2</h1>
+          <p class="start-menu__tagline">A playroom adventure with Camo</p>
+          <button id="start-play" class="menu-button menu-button--primary" type="button">
+            Play<span aria-hidden="true">▶</span>
+          </button>
+        </div>
+      </section>
+
+      <section id="customize" class="menu customize" aria-labelledby="customize-title">
+        <div id="look-stage" class="customize__stage">
+          <span class="customize__hint" aria-hidden="true">↔ Drag to turn</span>
+        </div>
+        <div class="customize__panel">
+          <header class="customize__head">
+            <button id="customize-back" class="menu-button menu-button--quiet" type="button">
+              <span aria-hidden="true">←</span>Back
+            </button>
+            <h2 id="customize-title">Make your explorer</h2>
+          </header>
+          <div id="look-axes" class="customize__axes"></div>
+          <button id="customize-play" class="menu-button menu-button--primary" type="button">
+            Let’s play!<span aria-hidden="true">▶</span>
+          </button>
+        </div>
+      </section>
+
       <section id="fatal-error" class="fatal-error" role="alert" hidden>
         <strong>The 3D playroom couldn’t start.</strong>
         <p id="fatal-error-message">Try refreshing in a browser with WebGL enabled.</p>

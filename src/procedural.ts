@@ -12,6 +12,7 @@ import {
   SphereGeometry,
   TorusGeometry,
 } from 'three';
+import { PLAYER_MATERIALS } from './player-look';
 
 const palette = Object.freeze({
   ink: 0x172033,
@@ -70,11 +71,15 @@ export function createPlayerFallback(): Group {
   shadow.castShadow = false;
   avatar.add(shadow);
 
+  // Parts borrow the approved model's material names so the chosen look
+  // repaints the stand-in too.
   const body = mesh(new CapsuleGeometry(0.32, 0.52, 8, 16), palette.yellow);
+  body.material.name = PLAYER_MATERIALS.hoodie;
   body.position.y = 0.59;
   avatar.add(body);
 
   const scarf = mesh(new TorusGeometry(0.27, 0.055, 8, 24), palette.coral);
+  scarf.material.name = PLAYER_MATERIALS.trousers;
   scarf.rotation.x = Math.PI / 2;
   scarf.position.y = 0.86;
   avatar.add(scarf);
@@ -82,6 +87,7 @@ export function createPlayerFallback(): Group {
   addEyes(avatar, 0.68, 0.11, 0.292);
 
   const cap = mesh(new SphereGeometry(0.3, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), palette.blue);
+  cap.material.name = PLAYER_MATERIALS.pack;
   cap.position.y = 0.93;
   avatar.add(cap);
 

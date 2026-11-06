@@ -18,3 +18,7 @@ Character and prop bounds are centered in X/Z and moved to floor contact before 
 The living-room asset is anchored at world origin without bounds centering. Its shallow patio/backyard intentionally makes the full asset asymmetric in Z; centering aggregate bounds would incorrectly move the indoor floor and furniture. Friend B remains on that patio while player movement remains indoors. The nearest indoor doorway position is within the proximity radius, so it is the presentation/approach point for Friend B.
 
 The player and Camo start together on the rug, left of the coffee table; Friend A stands inside by the couch. Cast and props are parented to the exact integrated anchors above. Keep model-authored units in meters; make any artistic scale correction in the source lane rather than relying on application scaling.
+
+## Player customization
+
+The character menu repaints `player.glb` at runtime by material name: `Player Skin` and `Player Skin Light` carry the skin tone; `Ink` (eyes) and `Smile` (mouth) deepen on darker tones so the face stays readable; `Player Teal`, `Player Teal Dark`, `Player Coral`, `Player Gold`, and `Player Gold Dark` carry the outfit. When regenerating the player, keep those names on the parts they color today. `tests/player-look.test.ts` fails if a name disappears. The default look reproduces the authored colors, so a player who never customizes sees the approved art unchanged.

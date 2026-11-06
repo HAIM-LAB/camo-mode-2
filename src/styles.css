@@ -981,6 +981,486 @@ body[data-dialogue='open'] .proximity {
   pointer-events: none;
 }
 
+/* --- Menus: start screen and character customization -------------------- */
+
+.menu {
+  position: fixed;
+  z-index: 60;
+  inset: 0;
+  display: none;
+  overflow: hidden auto;
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 10% 16%, rgba(255, 143, 120, 0.2), transparent 24%),
+    radial-gradient(circle at 86% 10%, rgba(246, 203, 88, 0.24), transparent 22%),
+    radial-gradient(circle at 90% 88%, rgba(114, 214, 161, 0.3), transparent 30%),
+    linear-gradient(145deg, #f7e8ce, #bfdfdc);
+}
+
+/* The start menu also shows before any script runs, so it is the first paint. */
+body:not([data-screen]) .start-menu,
+body[data-screen='start'] .start-menu,
+body[data-screen='customize'] .customize {
+  display: grid;
+}
+
+/* While a menu is up, the playroom behind it is neither seen nor announced. */
+body:not([data-screen]) #app > :not(.menu),
+body[data-screen='start'] #app > :not(.menu),
+body[data-screen='customize'] #app > :not(.menu) {
+  visibility: hidden;
+}
+
+.menu-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-weight: 800;
+  transition: transform 140ms ease, box-shadow 140ms ease;
+}
+
+.menu-button--primary {
+  min-width: 240px;
+  min-height: 76px;
+  padding: 0 44px;
+  border: 2px solid rgba(255, 255, 255, 0.7);
+  color: #fff;
+  background: linear-gradient(145deg, #54c98c, #278166);
+  box-shadow: inset 0 3px rgba(255, 255, 255, 0.28), 0 12px 24px rgba(31, 115, 87, 0.3);
+  font-size: 30px;
+  letter-spacing: 0.01em;
+}
+
+.menu-button--primary span {
+  font-size: 0.72em;
+}
+
+.menu-button--primary:hover {
+  transform: translateY(-2px);
+  box-shadow: inset 0 3px rgba(255, 255, 255, 0.28), 0 16px 30px rgba(31, 115, 87, 0.34);
+}
+
+.menu-button--primary:active {
+  transform: translateY(1px);
+}
+
+.menu-button--quiet {
+  flex: 0 0 auto;
+  min-height: 52px;
+  padding: 0 20px 0 16px;
+  gap: 8px;
+  border: 2px solid rgba(23, 32, 51, 0.12);
+  color: #3e495b;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(23, 32, 51, 0.08);
+  font-size: 18px;
+}
+
+.menu-button--quiet:hover {
+  border-color: rgba(23, 32, 51, 0.26);
+  transform: translateY(-1px);
+}
+
+.menu-button:focus-visible {
+  outline: 4px solid rgba(32, 115, 88, 0.45);
+  outline-offset: 3px;
+}
+
+.start-menu {
+  place-items: center;
+  padding: 24px 16px;
+}
+
+.start-menu__card {
+  display: flex;
+  width: min(560px, 100%);
+  flex-direction: column;
+  align-items: center;
+  padding: 58px 40px 44px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 40px;
+  background: var(--paper);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(14px) saturate(1.1);
+  text-align: center;
+}
+
+/* Camo as the in-game guide bubble draws them, at hero size. */
+.start-menu__mascot {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  width: 112px;
+  height: 120px;
+  border: 5px solid #fff;
+  border-radius: 48% 48% 45% 45%;
+  color: var(--ink);
+  background: linear-gradient(150deg, #8ee3b3, #42b880);
+  box-shadow: 0 14px 28px rgba(48, 132, 101, 0.3);
+  font-size: 15px;
+  animation: mascot-bob 2.8s ease-in-out infinite;
+}
+
+.start-menu__mascot::before {
+  position: absolute;
+  top: -19px;
+  width: 32px;
+  height: 32px;
+  border-radius: 60% 30%;
+  background: #4abf8a;
+  content: '';
+  transform: rotate(45deg);
+}
+
+.start-menu__title {
+  margin: 28px 0 0;
+  font-size: clamp(44px, 8vw, 68px);
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+
+.start-menu__tagline {
+  margin: 14px 0 34px;
+  text-wrap: balance;
+  color: var(--ink-soft);
+  font-size: clamp(18px, 2.4vw, 22px);
+  font-weight: 650;
+}
+
+.customize {
+  grid-template-columns: minmax(0, 1fr) minmax(400px, 540px);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 24px;
+  padding: 24px;
+}
+
+.customize__stage {
+  position: relative;
+  min-height: 0;
+}
+
+/* A soft spotlight grounds the character on the transparent preview canvas. */
+.customize__stage::before {
+  position: absolute;
+  inset: 8% 12%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(255, 252, 246, 0.78), rgba(255, 252, 246, 0));
+  content: '';
+}
+
+.look-preview {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  opacity: 0;
+  touch-action: none;
+  transition: opacity 260ms ease;
+}
+
+.look-preview[data-ready] {
+  opacity: 1;
+}
+
+.look-preview:active {
+  cursor: grabbing;
+}
+
+.customize__hint {
+  position: absolute;
+  z-index: 1;
+  bottom: 14px;
+  left: 50%;
+  padding: 10px 18px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 999px;
+  color: var(--ink-soft);
+  background: rgba(255, 252, 246, 0.82);
+  box-shadow: 0 5px 16px rgba(50, 62, 76, 0.1);
+  font-size: 16px;
+  font-weight: 700;
+  pointer-events: none;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+
+.customize__panel {
+  display: grid;
+  align-self: center;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 26px;
+  min-height: 0;
+  max-height: 100%;
+  padding: 24px 28px 28px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 34px;
+  background: var(--paper);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(14px) saturate(1.1);
+}
+
+.customize__head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.customize__head h2 {
+  margin: 0;
+  text-wrap: balance;
+  font-size: clamp(26px, 2.5vw, 34px);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.customize__axes {
+  display: grid;
+  align-content: start;
+  gap: 24px;
+  /* Room for selection rings and focus outlines inside the scroll box. */
+  margin: -8px;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.customize .menu-button--primary {
+  width: 100%;
+}
+
+.look-axis {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.look-axis legend {
+  float: left;
+  width: 100%;
+  margin-bottom: 12px;
+  padding: 0;
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.look-axis__options {
+  display: grid;
+  clear: both;
+  gap: 12px;
+}
+
+.look-option {
+  position: relative;
+  cursor: pointer;
+}
+
+/* The native radio covers its whole tile, invisibly, so the tile is the radio. */
+.look-option__input {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border-radius: inherit;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.look-option:has(input:focus-visible) {
+  outline: 4px solid rgba(32, 115, 88, 0.45);
+  outline-offset: 3px;
+}
+
+.look-option__swatch {
+  display: flex;
+  overflow: hidden;
+}
+
+.look-option__swatch i {
+  flex: 1;
+}
+
+/* The badge stays inside its own tile, so it never crowds a neighbour or the panel edge. */
+.look-option:has(input:checked)::after {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  color: #fff;
+  background: var(--mint-dark);
+  box-shadow: 0 3px 8px rgba(31, 115, 87, 0.3);
+  content: '✓';
+  /* Decorative: the radio already announces that it is checked. */
+  content: '✓' / '';
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.look-axis--swatch .look-axis__options {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.look-axis--swatch .look-option {
+  width: 100%;
+  max-width: 76px;
+  aspect-ratio: 1;
+  justify-self: center;
+  border-radius: 50%;
+}
+
+.look-axis--swatch .look-option__swatch {
+  width: 100%;
+  height: 100%;
+  border: 4px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 4px 10px rgba(23, 32, 51, 0.16);
+}
+
+.look-axis--swatch .look-option:hover .look-option__swatch {
+  box-shadow: 0 0 0 4px rgba(32, 115, 88, 0.28), 0 4px 10px rgba(23, 32, 51, 0.16);
+}
+
+.look-axis--swatch .look-option:has(input:checked) .look-option__swatch {
+  box-shadow: 0 0 0 4px var(--mint-dark), 0 6px 14px rgba(23, 32, 51, 0.18);
+}
+
+/* On a round swatch the check sits in the middle of the chosen color. */
+.look-axis--swatch .look-option:has(input:checked)::after {
+  inset: 0;
+  margin: auto;
+}
+
+.look-axis--card .look-axis__options {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.look-axis--card .look-option {
+  --pill-width: 76px;
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 16px 8px 14px;
+  border: 3px solid rgba(23, 32, 51, 0.08);
+  border-radius: 22px;
+  background: #fff;
+  box-shadow: 0 3px 8px rgba(23, 32, 51, 0.07);
+}
+
+.look-axis--card .look-option:hover {
+  border-color: rgba(32, 115, 88, 0.35);
+}
+
+/* Selection changes only colors: the border width is constant, so nothing moves. */
+.look-axis--card .look-option:has(input:checked) {
+  border-color: var(--mint-dark);
+  background: #eaf8f0;
+}
+
+.look-axis--card .look-option__swatch {
+  width: var(--pill-width);
+  height: 42px;
+  border-radius: 14px;
+  box-shadow: inset 0 0 0 2px rgba(23, 32, 51, 0.06);
+}
+
+/* On a card the check rides the color pill's top-right corner. */
+.look-axis--card .look-option:has(input:checked)::after {
+  top: 6px;
+  left: calc(50% + var(--pill-width) / 2 - 16px);
+}
+
+/* Hoodie first and widest, then trousers and backpack. */
+.look-axis--card .look-option__swatch i:first-child {
+  flex: 1.6;
+}
+
+.look-option__name {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+@keyframes mascot-bob {
+  50% { transform: translateY(-6px) rotate(-2deg); }
+}
+
+@media (max-width: 760px) {
+  .customize {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(240px, 36vh) auto;
+    gap: 12px;
+    padding: 12px 16px 16px;
+  }
+
+  .customize__panel {
+    align-self: start;
+    grid-template-rows: auto auto auto;
+    gap: 18px;
+    max-height: none;
+    padding: 18px;
+    border-radius: 26px;
+  }
+
+  /* The page scrolls on phones; keep the way into the game in reach. */
+  .customize .menu-button--primary {
+    position: sticky;
+    z-index: 2;
+    bottom: 12px;
+  }
+
+  .customize__axes {
+    overflow: visible;
+  }
+
+  .customize__hint {
+    bottom: 6px;
+    font-size: 14px;
+  }
+
+  .look-axis--swatch .look-axis__options {
+    gap: 10px;
+  }
+
+  /* Phone swatches are small; keep most of the chosen color showing. */
+  .look-axis--swatch .look-option:has(input:checked)::after {
+    width: 22px;
+    height: 22px;
+    border-width: 2px;
+    font-size: 11px;
+  }
+
+  .look-option__name {
+    font-size: 16px;
+  }
+
+  .look-axis--card .look-option {
+    --pill-width: 64px;
+  }
+
+  .menu-button--primary {
+    min-height: 68px;
+    font-size: 26px;
+  }
+}
+
+@media (max-width: 480px) {
+  .look-axis--card .look-axis__options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .fatal-error {
   position: fixed;
   z-index: 100;
