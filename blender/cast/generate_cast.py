@@ -33,6 +33,7 @@ ASSET_ROOTS: dict[str, bpy.types.Object] = {}
 CURRENT_COLLECTION: bpy.types.Collection | None = None
 CURRENT_ROOT: bpy.types.Object | None = None
 MATERIALS: dict[str, bpy.types.Material] = {}
+LINEUP_HIDDEN_VARIANTS = ("player_hair_girl_", "player_skirt", "player_scarf_")
 
 
 # -----------------------------------------------------------------------------
@@ -103,6 +104,11 @@ def make_materials() -> None:
     material("Player Coral", (0.82, 0.17, 0.17, 1.0))
     material("Player Gold", (1.0, 0.57, 0.045, 1.0))
     material("Player Gold Dark", (0.72, 0.30, 0.015, 1.0))
+    # Variant parts get their own names so runtime outfit colours apply by name.
+    # Authored like the parts they stand in for: scarf as beanie, skirt as hood.
+    material("Player Scarf", (1.0, 0.57, 0.045, 1.0))
+    material("Player Scarf Dark", (0.72, 0.30, 0.015, 1.0))
+    material("Player Skirt", (0.018, 0.235, 0.28, 1.0))
 
     # Friend A: rounded plum/mint silhouette and open pose.
     material("A Skin", (0.23, 0.085, 0.04, 1.0))
@@ -294,6 +300,33 @@ def add_cone(
     return register_object(obj)
 
 
+def add_torus(
+    name: str,
+    location: tuple[float, float, float],
+    major_radius: float,
+    minor_radius: float,
+    mat: bpy.types.Material,
+    *,
+    scale: tuple[float, float, float] = (1.0, 1.0, 1.0),
+    rotation: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    segments: tuple[int, int] = (16, 6),
+) -> bpy.types.Object:
+    bpy.ops.mesh.primitive_torus_add(
+        major_radius=major_radius,
+        minor_radius=minor_radius,
+        major_segments=segments[0],
+        minor_segments=segments[1],
+        location=location,
+        rotation=rotation,
+    )
+    obj = bpy.context.object
+    obj.name = name
+    obj.scale = scale
+    apply_scale(obj)
+    obj.data.materials.append(mat)
+    return register_object(obj)
+
+
 def add_segment(
     name: str,
     start: tuple[float, float, float],
@@ -358,6 +391,7 @@ def build_player() -> None:
     root["height_m"] = 1.405
     root["pose"] = "balanced ready stance"
     root["rear_read"] = "gold backpack, teal hood, coral trousers"
+    root["variants"] = "hair boy/girl, bottoms trousers/skirt, headwear beanie/head scarf; see add_player_variants()"
 
     add_shoe("player_shoe_L", -0.135, 0.005, MATERIALS["Player Teal Dark"], MATERIALS["Player Gold"], angle=-0.035)
     add_shoe("player_shoe_R", 0.135, 0.005, MATERIALS["Player Teal Dark"], MATERIALS["Player Gold"], angle=0.035)
@@ -374,7 +408,7 @@ def build_player() -> None:
     add_ico("player_hand_R", (0.31, -0.02, 0.57), (0.07, 0.055, 0.075), MATERIALS["Player Skin"], subdivisions=2)
 
     # Hood and hair sit behind the face. Blender +Y is exported character-back (-Z).
-    add_ico("player_hood", (0.0, 0.105, 1.045), (0.225, 0.115, 0.185), MATERIALS["Player Teal Dark"], subdivisions=2)
+    add_ico("player_hoodie_hood", (0.0, 0.105, 1.045), (0.225, 0.115, 0.185), MATERIALS["Player Teal Dark"], subdivisions=2)
     add_ico("player_hair_back", (0.0, 0.035, 1.195), (0.235, 0.185, 0.215), MATERIALS["Player Hair"], subdivisions=2)
     add_face("player", MATERIALS["Player Skin"], MATERIALS["Player Skin Light"], center_z=1.175, head_scale=(0.215, 0.19, 0.215))
     # A simple low beanie gives a crisp top silhouette without gender coding.
@@ -387,6 +421,40 @@ def build_player() -> None:
     add_rounded_cube("player_pack_badge", (0.0, 0.307, 0.740), (0.095, 0.025, 0.095), MATERIALS["Player Teal"], bevel=0.018, rotation=(0.0, math.radians(45.0), 0.0))
     add_rounded_cube("player_pack_strap_L", (-0.105, 0.286, 0.935), (0.055, 0.025, 0.16), MATERIALS["Player Gold Dark"], bevel=0.018)
     add_rounded_cube("player_pack_strap_R", (0.105, 0.286, 0.935), (0.055, 0.025, 0.16), MATERIALS["Player Gold Dark"], bevel=0.018)
+
+    add_player_variants()
+
+
+def add_player_variants() -> None:
+    """Alternative part sets the character menu switches between at runtime.
+
+    Every set exports into player.glb as named nodes; the app shows one per
+    choice by name prefix. The body is shared: Boy and Girl differ only in hair.
+      player_hair_boy_*   short swept fringe (shows under the beanie)
+      player_hair_girl_*  shoulder-length hair and side locks
+      player_skirt*       knee-length skirt over the existing legs
+      player_scarf_*      head scarf; replaces the beanie and covers all hair
+    """
+    hair = MATERIALS["Player Hair"]
+    add_ico("player_hair_boy_fringe", (-0.04, -0.192, 1.282), (0.125, 0.036, 0.03), hair, subdivisions=1, rotation=(0.0, math.radians(-10.0), math.radians(8.0)))
+
+    add_ico("player_hair_girl_back", (0.0, 0.14, 1.075), (0.238, 0.118, 0.175), hair, subdivisions=2)
+    add_ico("player_hair_girl_lock_L", (-0.2, -0.045, 1.07), (0.062, 0.078, 0.15), hair, subdivisions=2)
+    add_ico("player_hair_girl_lock_R", (0.2, -0.045, 1.07), (0.062, 0.078, 0.15), hair, subdivisions=2)
+
+    # Hem sits below the knee; the trouser legs read as leggings underneath.
+    add_cone("player_skirt", (0.0, 0.0, 0.42), 0.285, 0.215, 0.30, (1.0, 0.8), MATERIALS["Player Skirt"], vertices=12)
+
+    # A full covering that frames the face. The face opening is the plane
+    # y=-0.155 cutting the head sphere: a clean 0.167 m circle the band sits on.
+    # The hood is sized to meet that circle all the way round (a few percent
+    # over, so its facets never leave a gap behind the band) and encloses the
+    # hair and ears. The capelet wraps under the chin and rests on the
+    # shoulders clear of the hoodie.
+    scarf, scarf_dark = MATERIALS["Player Scarf"], MATERIALS["Player Scarf Dark"]
+    add_ico("player_scarf_hood", (0.0, 0.026, 1.18), (0.262, 0.247, 0.262), scarf, subdivisions=2)
+    add_torus("player_scarf_band", (0.0, -0.155, 1.175), 0.167, 0.034, scarf_dark, rotation=(math.radians(90.0), 0.0, 0.0))
+    add_cone("player_scarf_drape", (0.0, 0.03, 1.0), 0.275, 0.165, 0.17, (1.0, 0.9), scarf, vertices=12)
 
 
 def build_friend_a() -> None:
@@ -563,6 +631,13 @@ def create_preview_scene() -> None:
     scene = bpy.context.scene
     studio = bpy.data.collections.new("STUDIO_PREVIEW_NOT_EXPORTED")
     scene.collection.children.link(studio)
+
+    # Every player variant exports together; the lineup shows the runtime default
+    # look (boy hair, trousers, beanie) so alternatives do not overlap it.
+    for obj in ASSET_COLLECTIONS["player"].objects:
+        if obj.name.startswith(LINEUP_HIDDEN_VARIANTS):
+            obj.hide_render = True
+            obj.hide_set(True)
 
     # Source lineup remains editable while every GLB was exported at local origin.
     ASSET_ROOTS["player"].location = (-2.75, 0.0, 0.0)

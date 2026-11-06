@@ -56,3 +56,26 @@ received for that turn: the character and beat markers, and the persona rendered
 as behavioural instruction. Note the beat marker reads `# BEAT: greeting` — the
 prompt is from the turn that produced the transition, so it shows the beat the
 character was standing on when it spoke, not the one it landed in.
+
+---
+
+## Menus and character customization
+
+The frames in [`menus/`](menus/) were captured on the keyless mock brain with
+`chrome-devtools-axi`, at 1440 × 900 and at a 390 × 844 phone viewport.
+
+- `01`–`04`: the start menu, then the customization screen with the default
+  look, Girl · skirt · beanie, and Boy · trousers · head scarf.
+- [`combinations-front.png`](menus/combinations-front.png) and
+  [`combinations-back.png`](menus/combinations-back.png): all eight Boy/Girl ×
+  trousers/skirt × beanie/scarf combinations, across five skin tones and six
+  outfits. These were reviewed for age-appropriateness:
+  - one shared child body;
+  - skirts at or below the knee over leggings;
+  - a full head covering that frames the face.
+- `05`–`11`: face close-ups on the lightest, middle, and darkest tones, on
+  desktop and phone. They show that the eyes and mouth stay readable.
+- `12`: the look restored after a reload.
+- `13`–`15`: in game, rear and front, and a Camo conversation after the menus.
+- `16`: `?skipMenu=1`.
+- `17`–`19`: the phone layout.

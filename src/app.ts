@@ -1,19 +1,14 @@
 import {
-  ACESFilmicToneMapping,
   Clock,
   Color,
-  DirectionalLight,
   Fog,
   Group,
-  HemisphereLight,
-  PCFSoftShadowMap,
   PerspectiveCamera,
   Scene,
-  SRGBColorSpace,
   Vector3,
   WebGLRenderer,
 } from 'three';
-import { AssetLoadSummary, OptionalAssetLoader } from './assets';
+import { AssetLoadSummary, OptionalAssetLoader, createVisualTarget } from './assets';
 import {
   ASSET_URLS,
   AssetId,
@@ -43,6 +38,8 @@ import {
   createRoomFallback,
   fallbackColors,
 } from './procedural';
+import { PlayerLook, applyPlayerLook } from './player-look';
+import { createPlayroomLights, createRenderer } from './render';
 
 interface SceneEntity extends NearbyEntity {
   root: Group;
@@ -65,6 +62,8 @@ export interface DemoSnapshot {
   entities: Record<string, { x: number; z: number; location?: string }>;
   /** Added by the conversational-agent layer; the fields above are unchanged. */
   dialogue: DialogueSnapshot;
+  /** The look chosen in the character menu. */
+  look: PlayerLook;
 }
 
 declare global {
@@ -82,14 +81,6 @@ function requiredElement<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);
   if (!element) throw new Error(`Required UI element #${id} is missing`);
   return element as T;
-}
-
-function createVisualTarget(fallback: Group, name: string): Group {
-  const target = new Group();
-  target.name = `${name}-visual`;
-  target.userData.assetMode = 'procedural';
-  target.add(fallback);
-  return target;
 }
 
 function wrapEntity(
@@ -149,6 +140,7 @@ export class CamoDemoApp {
   private readonly cameraTarget = new Vector3();
   private readonly desiredCameraPosition = new Vector3();
   private readonly dialogue: DialogueController;
+  private readonly look: PlayerLook;
   private readonly sceneFlags: SceneFlags = {};
   private carried?: SceneEntity;
   private lastPromptSignature = '';
@@ -156,18 +148,10 @@ export class CamoDemoApp {
   private elapsed = 0;
   private animationFrame = 0;
 
-  constructor() {
-    this.renderer = new WebGLRenderer({
-      canvas: this.canvas,
-      antialias: true,
-      powerPreference: 'high-performance',
-    });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = PCFSoftShadowMap;
-    this.renderer.outputColorSpace = SRGBColorSpace;
-    this.renderer.toneMapping = ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
+  constructor(look: PlayerLook) {
+    this.renderer = createRenderer(this.canvas);
+    this.look = look;
+    applyPlayerLook(this.playerVisual, look);
 
     this.entities = [
       wrapEntity('camo', 'Camo', 'camo', SCENE_ANCHORS.camo, createCamoFallback(), 1.35),
@@ -232,20 +216,7 @@ export class CamoDemoApp {
     this.scene.background = new Color(0xc9dfe1);
     this.scene.fog = new Fog(0xc9dfe1, 14, 27);
 
-    const hemisphere = new HemisphereLight(0xfff5df, 0x536971, 2.3);
-    this.scene.add(hemisphere);
-
-    const sun = new DirectionalLight(0xffe9cf, 3.5);
-    sun.position.set(3.8, 7.5, 5.2);
-    sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
-    sun.shadow.camera.left = -8;
-    sun.shadow.camera.right = 8;
-    sun.shadow.camera.top = 7;
-    sun.shadow.camera.bottom = -7;
-    sun.shadow.camera.near = 0.5;
-    sun.shadow.camera.far = 22;
-    this.scene.add(sun);
+    this.scene.add(...createPlayroomLights(8, 7));
 
     this.scene.add(this.roomVisual);
     for (const entity of this.entities) this.scene.add(entity.root);
@@ -475,9 +446,13 @@ export class CamoDemoApp {
     };
 
     const loader = new OptionalAssetLoader();
-    await loader.load(targets, (summary) => {
-      this.renderAssetStatus(summary);
-    });
+    await loader.load(
+      targets,
+      (summary) => {
+        this.renderAssetStatus(summary);
+      },
+      { player: (model) => applyPlayerLook(model, this.look) },
+    );
   }
 
   private renderAssetStatus(summary: AssetLoadSummary): void {
@@ -543,6 +518,7 @@ export class CamoDemoApp {
       assetModes,
       entities,
       dialogue: this.dialogue.snapshot(),
+      look: this.look,
     };
   }
 }
