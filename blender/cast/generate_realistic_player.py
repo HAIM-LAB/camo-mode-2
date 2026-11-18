@@ -150,6 +150,24 @@ def keep_vertices(obj: bpy.types.Object, keep) -> None:
     obj.data.update()
 
 
+def keep_faces(obj: bpy.types.Object, keep) -> None:
+    """Deletes every face for which keep(face) is false, without changing how the rest is shaded.
+
+    The vertices that stay keep the normals they had among all their old
+    neighbors, so no crease appears where the mesh now ends.
+    """
+    mesh = bmesh.new()
+    mesh.from_mesh(obj.data)
+    mesh.normal_update()
+    normals = {vertex: vertex.normal.copy() for vertex in mesh.verts}
+    bmesh.ops.delete(mesh, geom=[face for face in mesh.faces if not keep(face)], context="FACES")
+    kept = [normals[vertex] for vertex in mesh.verts]
+    mesh.to_mesh(obj.data)
+    mesh.free()
+    obj.data.update()
+    obj.data.normals_split_custom_set_from_vertices(kept)
+
+
 def duplicate(obj: bpy.types.Object, name: str) -> bpy.types.Object:
     copy = obj.copy()
     copy.data = obj.data.copy()
@@ -777,13 +795,67 @@ def bridge_ears(mesh: bmesh.types.BMesh, ears: int) -> None:
     bmesh.ops.recalc_face_normals(mesh, faces=mesh.faces[:])
 
 
-def build_headwear(head: Head, body: bpy.types.Object, top: bpy.types.Object, hair: list[bpy.types.Object]) -> dict[str, bpy.types.Object]:
-    # The hair is only ever seen under the beanie (the scarf covers it whole),
-    # so what the beanie would hide is cut away rather than left to poke through.
-    brim_point, brim_normal = head.brim_plane
-    for piece in hair:
-        bisect(piece, brim_point, tuple(-component for component in brim_normal))
+# How deep the long hair lies on the head, in meters: over the parting, and
+# at the sides, where it is on its way out to fall over the ears.
+CROWN_DEPTH = 0.017
+SIDE_DEPTH = 0.028
 
+
+def fill_out_crown(head: Head, hair: bpy.types.Object, body: bpy.types.Object) -> None:
+    """Lifts hair that lies flat on the upper head, so a bare head is round rather than pointed.
+
+    The long hair rises at its parting and falls wide over the ears, but
+    between them it lies close against the skull, which gives the head a
+    gabled outline. Wherever the hair around a vertex is shallower than the
+    depth wanted there, the vertex moves off the scalp by what is missing, so
+    the layers keep their order and their spacing. Nothing moves at the
+    beanie's brim or below it.
+    """
+    reach = 0.025  # Hair within this distance along the scalp counts as around a vertex.
+    scalp = BVHTree.FromObject(body, bpy.context.evaluated_depsgraph_get())
+    vertices = [vertex for vertex in hair.data.vertices if head.above_brim(vertex.co) > 0.0]
+    roots, outward, depths = [], [], []
+    for vertex in vertices:
+        location, normal, _, _ = scalp.find_nearest(vertex.co)
+        roots.append(location)
+        outward.append(normal)
+        depths.append((vertex.co - location).dot(normal))
+    around = KDTree(len(roots))
+    for index, root in enumerate(roots):
+        around.insert(root, index)
+    around.balance()
+    neighbors = [[index for _, index, _ in around.find_range(root, reach)] for root in roots]
+    deepest = [max(depths[index] for index in near) for near in neighbors]
+    for vertex, normal, near in zip(vertices, outward, neighbors):
+        # Averaged over the neighborhood, so the lift changes smoothly along the hair.
+        depth = sum(deepest[index] for index in near) / len(near)
+        # The scalp faces sideways where the hair is heading for the ears.
+        wanted = CROWN_DEPTH + (SIDE_DEPTH - CROWN_DEPTH) * ease(min(abs(normal.x) / 0.85, 1.0))
+        # The lift fades out toward the brim, over the three centimeters above it.
+        vertex.co += normal * max(wanted - depth, 0.0) * ease(min(head.above_brim(vertex.co) / 0.03, 1.0))
+    hair.data.update()
+
+
+def split_at_brim(head: Head, hair: bpy.types.Object, name: str, shape=None) -> bpy.types.Object:
+    """Cuts a hairstyle in two along the beanie's brim and returns the part above it.
+
+    The hair keeps what shows below a hat. The rest, which a hat covers and
+    only a bare head shows, becomes a mesh of its own, so the beanie hides it
+    rather than having it poke through the knit. The two still shade as one
+    head of hair. shape(hair) may reshape what is above the brim once the cut
+    is marked, which leaves the hair below it exactly as it was.
+    """
+    bisect(hair, *head.brim_plane, keep_both=True)
+    if shape:
+        shape(hair)
+    crown = duplicate(hair, name)
+    keep_faces(crown, lambda face: head.above_brim(face.calc_center_median()) > 0.0)
+    keep_faces(hair, lambda face: head.above_brim(face.calc_center_median()) <= 0.0)
+    return crown
+
+
+def build_headwear(head: Head, body: bpy.types.Object, top: bpy.types.Object) -> dict[str, bpy.types.Object]:
+    _, brim_normal = head.brim_plane
     beanie = fitted_layer(
         body,
         "player_beanie_knit",
@@ -1016,13 +1088,17 @@ def build_player(mpfb: dict) -> dict[str, bpy.types.Object]:
         "player_lashes": lashes,
         "player_hair_boy_short": hair_boy,
         "player_hair_girl_long": hair_girl,
+        "player_bare_hair_boy_short": split_at_brim(head, hair_boy, "player_bare_hair_boy_short"),
+        "player_bare_hair_girl_long": split_at_brim(
+            head, hair_girl, "player_bare_hair_girl_long", shape=lambda hair: fill_out_crown(head, hair, body),
+        ),
         "player_top": top,
         "player_trousers": trousers,
         "player_skirt": skirt,
         "player_skirt_leggings": leggings,
         "player_socks": socks,
         "player_shoes": shoes,
-        **build_headwear(head, body, top, [hair_boy, hair_girl]),
+        **build_headwear(head, body, top),
     }
     parts["player_ear_pair"] = ears = split_ears(body)
     parts["player_body"] = body = lighten_body(body, head, knee)
@@ -1040,8 +1116,13 @@ def build_player(mpfb: dict) -> dict[str, bpy.types.Object]:
     assign(eyes, make_material("Player Eyes", "#ffffff", texture=eye_texture(mpfb), roughness=0.25))
     assign(brows, make_material("Player Brows", "#ffffff", texture=tinted_alpha_texture(mpfb, BROWS, "player-brows", "#3a2820"), roughness=0.9, alpha="BLEND"))
     assign(lashes, make_material("Player Lashes", "#ffffff", texture=tinted_alpha_texture(mpfb, LASHES, "player-lashes", "#241a16"), roughness=0.9, alpha="BLEND"))
-    assign(hair_boy, make_material("Player Hair Boy", "#ffffff", texture=hair_texture(mpfb, HAIR_BOY, "player-hair-boy"), roughness=0.8, alpha="CLIP", double_sided=True))
-    assign(hair_girl, make_material("Player Hair Girl", "#ffffff", texture=hair_texture(mpfb, HAIR_GIRL, "player-hair-girl"), roughness=0.8, alpha="CLIP", double_sided=True))
+    for gender, source, style in (("boy", HAIR_BOY, "short"), ("girl", HAIR_GIRL, "long")):
+        strands = make_material(
+            f"Player Hair {gender.title()}", "#ffffff", texture=hair_texture(mpfb, source, f"player-hair-{gender}"),
+            roughness=0.8, alpha="CLIP", double_sided=True,
+        )
+        assign(parts[f"player_hair_{gender}_{style}"], strands)
+        assign(parts[f"player_bare_hair_{gender}_{style}"], strands)
     assign(top, make_material("Player Teal", TOP_HEX, texture=clothes_map, roughness=0.85))
     assign(trousers, make_material("Player Coral", TROUSERS_HEX, texture=clothes_map, roughness=0.85))
     assign(skirt, make_material("Player Skirt", TOP_DARK_HEX, roughness=0.85, double_sided=True))
@@ -1527,6 +1608,15 @@ def ground(rig: bpy.types.Object, meshes: list[bpy.types.Object]) -> None:
 PLAYROOM_HEIGHT = 1.38
 
 
+def hatted_height(meshes: list[bpy.types.Object]) -> float:
+    """The top of the child in the beanie, the look its height is defined in.
+
+    The hair of a bare head stands a little taller than the knit that would
+    press it down, and must not change how large the body is made.
+    """
+    return max(world_z_range(obj)[1] for obj in meshes if not obj.name.startswith("player_bare_"))
+
+
 def enlarge(rig: bpy.types.Object, meshes: list[bpy.types.Object], factor: float) -> None:
     """Scales the finished, animated model about the floor under its feet."""
     scale = Matrix.Scale(factor, 4)
@@ -1588,11 +1678,18 @@ def export_player(rig: bpy.types.Object, meshes: list[bpy.types.Object], walk_sp
 
 VIEWS = (
     # name, camera angle around the child (0 = front), then the look-at height and
-    # the camera's distance as multiples of the child's height, then the lens
-    ("front", 0.0, 0.5, 3.0, 60.0),
-    ("threeq", 35.0, 0.5, 3.0, 60.0),
-    ("back", 180.0, 0.5, 3.0, 60.0),
-    ("face", 12.0, 0.87, 1.15, 70.0),
+    # the camera's distance as multiples of the child's height, the lens, and how
+    # far the camera rises above what it looks at, as a share of its distance
+    ("front", 0.0, 0.5, 3.0, 60.0, 0.08),
+    ("threeq", 35.0, 0.5, 3.0, 60.0, 0.08),
+    ("side", 90.0, 0.5, 3.0, 60.0, 0.08),
+    ("back", 180.0, 0.5, 3.0, 60.0, 0.08),
+    ("face", 12.0, 0.87, 1.15, 70.0, 0.08),
+    ("profile", 90.0, 0.87, 1.15, 70.0, 0.08),
+    ("nape", 168.0, 0.87, 1.15, 70.0, 0.08),
+    # From above and behind, as the playroom's camera sees the child.
+    ("crown", 180.0, 0.87, 1.15, 70.0, 0.6),
+    ("above", 25.0, 0.87, 1.15, 70.0, 0.6),
 )
 
 
@@ -1628,34 +1725,44 @@ def setup_preview_scene(height: float) -> None:
     scene.camera = camera
 
 
-def shot(path: Path, angle: float, target_z: float, distance: float, lens: float) -> None:
+def shot(path: Path, angle: float, target_z: float, distance: float, lens: float, rise: float = 0.08) -> None:
     scene = bpy.context.scene
     camera = scene.camera
     camera.data.lens = lens
     radians = math.radians(angle)
-    camera.location = (math.sin(radians) * distance, -math.cos(radians) * distance, target_z + distance * 0.08)
+    camera.location = (math.sin(radians) * distance, -math.cos(radians) * distance, target_z + distance * rise)
     camera.rotation_euler = (Vector((0, 0, target_z)) - camera.location).to_track_quat("-Z", "Y").to_euler()
     scene.render.filepath = str(path)
     bpy.ops.render.render(write_still=True)
 
 
 LOOKS = (
-    # label, hair shown, bottoms shown, headwear shown
-    ("boy", "player_hair_boy_", "player_trousers", "player_beanie_"),
-    ("girl", "player_hair_girl_", "player_skirt", "player_beanie_"),
-    ("scarf", None, "player_skirt", "player_scarf_"),
+    # label, gender, bottoms, headwear
+    ("boy", "boy", "trousers", "beanie"),
+    ("girl", "girl", "skirt", "beanie"),
+    ("scarf", "girl", "skirt", "scarf"),
+    ("boy-bare", "boy", "trousers", "bare"),
+    ("girl-bare", "girl", "skirt", "bare"),
 )
-VARIANT_PREFIXES = ("player_hair_", "player_trousers", "player_skirt", "player_beanie_", "player_scarf_", "player_ear_")
+VARIANT_PREFIXES = ("player_hair_", "player_bare_", "player_trousers", "player_skirt", "player_beanie_", "player_scarf_", "player_ear_")
 
 
-def show_look(player: dict[str, bpy.types.Object], hair: str | None, bottoms: str, headwear: str) -> None:
+def show_look(player: dict[str, bpy.types.Object], gender: str, bottoms: str, headwear: str) -> None:
     """Shows one look's part sets for a render, as applyPlayerLook does at runtime."""
-    shown = tuple(prefix for prefix in (hair, bottoms, headwear) if prefix)
     for name, obj in player.items():
-        if name.startswith(VARIANT_PREFIXES):
+        if not name.startswith(VARIANT_PREFIXES):
+            continue
+        if name.startswith("player_bare_"):
+            # The hair a hat would cover.
+            keep = headwear == "bare" and name.startswith(f"player_bare_hair_{gender}_")
+        elif name.startswith("player_hair_"):
+            keep = headwear != "scarf" and name.startswith(f"player_hair_{gender}_")
+        elif name.startswith("player_ear_"):
             # The head scarf covers the ears as well as the hair.
-            keep = name.startswith(shown) or (name.startswith("player_ear_") and headwear != "player_scarf_")
-            obj.hide_render = not keep
+            keep = headwear != "scarf"
+        else:
+            keep = name.startswith((f"player_{bottoms}", f"player_{headwear}_"))
+        obj.hide_render = not keep
 
 
 def render_preview(player: dict[str, bpy.types.Object], height: float, directory: Path | None) -> None:
@@ -1663,16 +1770,16 @@ def render_preview(player: dict[str, bpy.types.Object], height: float, directory
     setup_preview_scene(height)
     render = bpy.context.scene.render
     frames: list[Path] = []
-    for label, hair, bottoms, headwear in LOOKS:
-        show_look(player, hair, bottoms, headwear)
-        render.resolution_percentage = 70  # Four frames side by side make the strip.
+    for label, gender, bottoms, headwear in LOOKS:
+        show_look(player, gender, bottoms, headwear)
+        render.resolution_percentage = 70  # The frames side by side make the strip.
         for name, angle in (("front", 14.0), ("back", 166.0)) if label == "boy" else (("front", 14.0),):
             frames.append(TEXTURE_DIR / f"preview-{label}-{name}.png")
             shot(frames[-1], angle, height * 0.5, height * 2.6, 60.0)
         render.resolution_percentage = 100
         if directory:
-            for name, angle, target, distance, lens in VIEWS:
-                shot(directory / f"{label}-{name}.png", angle, height * target, height * distance, lens)
+            for name, angle, target, distance, lens, rise in VIEWS:
+                shot(directory / f"{label}-{name}.png", angle, height * target, height * distance, lens, rise)
     show_look(player, *LOOKS[0][1:])
 
     strips = []
@@ -1690,11 +1797,14 @@ def render_preview(player: dict[str, bpy.types.Object], height: float, directory
     bpy.data.images.remove(preview)
 
 
-# The exported file must stay a sensible download for a browser game.
-MAX_TRIANGLES = 28_000
+# The exported file must stay a sensible download for a browser game. It
+# carries every look's parts at once: the hair only a bare head shows is
+# 3,300 of these triangles.
+MAX_TRIANGLES = 31_000
 MAX_BYTES = 2_500_000
 REQUIRED_NODES = (
-    "player_body", "player_ear_pair", "player_hair_boy_short", "player_hair_girl_long", "player_top",
+    "player_body", "player_ear_pair", "player_hair_boy_short", "player_hair_girl_long",
+    "player_bare_hair_boy_short", "player_bare_hair_girl_long", "player_top",
     "player_trousers", "player_skirt", "player_skirt_leggings", "player_beanie_knit", "player_scarf_wrap",
     "player_scarf_drape", "player_shoes",
 )
@@ -1719,7 +1829,7 @@ def validate_export() -> None:
     # Vertices rather than bounding boxes: a skinned mesh's box is not filled in on import.
     points = [obj.matrix_world @ vertex.co for obj in meshes for vertex in obj.data.vertices]
     low = min(point.z for point in points)  # glTF Y-up returns to Blender Z-up on import.
-    tall = max(point.z for point in points) - low
+    tall = hatted_height(meshes) - low
     center_x = (min(point.x for point in points) + max(point.x for point in points)) / 2
     triangles = sum(len(polygon.vertices) - 2 for obj in meshes for polygon in obj.data.polygons)
     if abs(low) > 0.006:
@@ -1749,7 +1859,7 @@ def main() -> None:
     relax_rest_pose(rig, meshes)
     ground(rig, meshes)
     # Rendered before the clips exist, so the preview shows the rest pose.
-    render_preview(player, max(world_z_range(obj)[1] for obj in meshes), views)
+    render_preview(player, hatted_height(meshes), views)
     animate_idle(rig)
     animate_walk(rig)
     slide = check_walk(rig)
@@ -1763,7 +1873,7 @@ def main() -> None:
         raise RuntimeError(f"An arm comes within {MIN_CLEARANCE * 1000:.0f} mm of the body")
     # Everything above is measured on the child at its natural height. Only now
     # is it enlarged to stand as tall as the rest of the cast.
-    factor = PLAYROOM_HEIGHT / max(world_z_range(obj)[1] for obj in meshes)
+    factor = PLAYROOM_HEIGHT / hatted_height(meshes)
     enlarge(rig, meshes, factor)
     print(f"Enlarged {factor:.3f} times to {PLAYROOM_HEIGHT} m; its walk now covers {WALK_SPEED * factor:.2f} m/s")
     export_player(rig, meshes, WALK_SPEED * factor)

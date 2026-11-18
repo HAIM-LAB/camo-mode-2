@@ -21,7 +21,7 @@ Picking one leads to character customization on a live preview of that character
 - skin tone;
 - outfit colors;
 - trousers or skirt;
-- beanie or head scarf.
+- a beanie, a head scarf, or nothing on the head.
 
 **Let's play!** enters the playroom as that character, which idles and walks with its own animation. The realistic child walks rather than scampers, so it crosses the room more slowly than the cartoon character. The style and the look are saved in the browser's `localStorage` and never leave the machine.
 

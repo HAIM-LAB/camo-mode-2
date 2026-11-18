@@ -157,10 +157,12 @@ const OUTFITS: readonly LookOption[] = [
   outfit('bubblegum', 'Bubblegum', { hoodie: '#ff9ec7', hoodieDark: '#e077a4', trousers: '#7a6ae0', pack: '#7fe0d0', packDark: '#4fb8a8' }),
 ];
 
-// Boy and Girl share one child body; only the hair differs.
+// Boy and Girl share one child body; only the hair differs. A model whose
+// hairstyles differ over the top of the head, where only a bare head shows
+// them, names those parts player_bare_hair_boy_ and player_bare_hair_girl_.
 const GENDERS: readonly LookOption[] = [
-  { id: 'boy', label: 'Boy', icon: 'boy', nodes: ['player_hair_boy_'] },
-  { id: 'girl', label: 'Girl', icon: 'girl', nodes: ['player_hair_girl_'] },
+  { id: 'boy', label: 'Boy', icon: 'boy', nodes: ['player_hair_boy_', 'player_bare_hair_boy_'] },
+  { id: 'girl', label: 'Girl', icon: 'girl', nodes: ['player_hair_girl_', 'player_bare_hair_girl_'] },
 ];
 
 // The skirt set brings its own leggings, so the legs are covered either way.
@@ -169,6 +171,8 @@ const BOTTOMS: readonly LookOption[] = [
   { id: 'skirt', label: 'Skirt', icon: 'skirt', nodes: ['player_skirt'] },
 ];
 
+// The player_hair_ parts are the hair that shows below a hat. The rest of the
+// hair, which a hat covers, is the bare head's own part set.
 const HEADWEAR: readonly LookOption[] = [
   { id: 'beanie', label: 'Beanie', icon: 'beanie', nodes: ['player_beanie_'] },
   // A full head covering: every hair set and the ears stay underneath it.
@@ -179,6 +183,7 @@ const HEADWEAR: readonly LookOption[] = [
     nodes: ['player_scarf_'],
     hides: ['player_hair_', 'player_ear_'],
   },
+  { id: 'none', label: 'Nothing', icon: 'bare', nodes: ['player_bare_'] },
 ];
 
 export const LOOK_AXES = [
@@ -214,7 +219,7 @@ export const LOOK_AXES = [
   },
   {
     id: 'headwear',
-    label: 'Beanie or scarf',
+    label: 'On your head',
     display: 'icon',
     defaultOption: 'beanie',
     options: HEADWEAR,

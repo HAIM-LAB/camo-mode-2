@@ -145,6 +145,9 @@ describe('player avatar', () => {
     const avatar = new PlayerAvatar(DEFAULT_PLAYER_LOOK);
     avatar.setLook({ ...DEFAULT_PLAYER_LOOK, headwear: 'scarf' });
     expect(shownParts(avatar.visual, 'player_scarf_')).toEqual(['player_scarf_fallback']);
+    avatar.setLook({ ...DEFAULT_PLAYER_LOOK, headwear: 'none' });
+    expect(shownParts(avatar.visual, 'player_scarf_')).toEqual([]);
+    expect(shownParts(avatar.visual, 'player_bare_')).toEqual(['player_bare_hair_fallback']);
     expect(() => avatar.setLook({ ...DEFAULT_PLAYER_LOOK, style: 'realistic' })).toThrow(/style/);
   });
 });

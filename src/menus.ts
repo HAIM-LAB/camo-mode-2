@@ -13,7 +13,7 @@ import {
   surfaceColor,
 } from './player-look';
 
-/** Two-choice axes that share one row on wide screens. */
+/** Axes with few choices, which share one row on wide screens. */
 const PAIRED_AXES: ReadonlySet<string> = new Set(['bottoms', 'headwear']);
 
 export type Screen = 'start' | 'style' | 'customize' | 'game' | 'error';
@@ -176,10 +176,20 @@ export class MenuFlow {
   }
 
   private renderAxes(): void {
-    for (const axis of LOOK_AXES as readonly LookAxis[]) {
+    const axes = LOOK_AXES as readonly LookAxis[];
+    // The shared row has a column per choice, so its cards are all one width
+    // however the choices divide between its axes.
+    const paired = axes.filter((axis) => PAIRED_AXES.has(axis.id));
+    const pairColumns = paired.reduce((sum, axis) => sum + axis.options.length, 0);
+    this.axesRoot.style.setProperty('--pair-columns', String(pairColumns));
+
+    for (const axis of axes) {
       const fieldset = document.createElement('fieldset');
       fieldset.className = `look-axis look-axis--${axis.display}`;
-      fieldset.classList.toggle('look-axis--pair', PAIRED_AXES.has(axis.id));
+      if (PAIRED_AXES.has(axis.id)) {
+        fieldset.classList.add('look-axis--pair');
+        fieldset.style.setProperty('--span', String(axis.options.length));
+      }
       const legend = document.createElement('legend');
       legend.textContent = axis.label;
       const options = document.createElement('div');

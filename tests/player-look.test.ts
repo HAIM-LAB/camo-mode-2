@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Color, Group, Mesh, MeshStandardMaterial, Object3D } from 'three';
+import { Box3, Color, Group, Mesh, MeshStandardMaterial, Object3D, Raycaster, SkinnedMesh, Vector3 } from 'three';
 import {
   DEFAULT_PLAYER_LOOK,
   LOOK_AXES,
@@ -53,6 +53,50 @@ function partPrefixes(kind: 'nodes' | 'hides'): string[] {
   return AXES.flatMap((axis) => axis.options.flatMap((option) => option[kind] ?? []));
 }
 
+/** Every option that shows a part set, with a label for failure messages. */
+function partSets(): { label: string; nodes: readonly string[] }[] {
+  return AXES.flatMap((axis) =>
+    axis.options.flatMap((option) => (option.nodes ? [{ label: `${axis.id} ${option.id}`, nodes: option.nodes }] : [])),
+  );
+}
+
+/** The middle of the meshes on screen whose names start with a prefix. */
+function middleOfShown(root: Object3D, prefix: string): Vector3 {
+  const bounds = new Box3();
+  root.updateWorldMatrix(true, true);
+  root.traverseVisible((child) => {
+    if (!(child instanceof Mesh) || !child.name.startsWith(prefix)) return;
+    child.geometry.computeBoundingBox();
+    if (child.geometry.boundingBox) bounds.union(child.geometry.boundingBox.clone().applyMatrix4(child.matrixWorld));
+  });
+  return bounds.getCenter(new Vector3());
+}
+
+// Straight down, and tilted 40 degrees to the front, back, left, and right:
+// about how steeply the playroom's camera looks down on the player.
+const TILT = (40 * Math.PI) / 180;
+const FROM_ABOVE: readonly Vector3[] = [
+  new Vector3(0, 1, 0),
+  ...[[0, 1], [0, -1], [1, 0], [-1, 0]].map(
+    ([x, z]) => new Vector3(x * Math.sin(TILT), Math.cos(TILT), z * Math.sin(TILT)),
+  ),
+];
+
+/** The name of the first mesh on screen that each look down at a point meets. */
+function seenFromAbove(root: Object3D, target: Vector3): string[] {
+  root.updateMatrixWorld(true);
+  const shown: Mesh[] = [];
+  root.traverseVisible((child) => {
+    if (child instanceof SkinnedMesh) child.skeleton.update();
+    if (child instanceof Mesh) shown.push(child);
+  });
+  const raycaster = new Raycaster();
+  return FROM_ABOVE.map((toward) => {
+    raycaster.set(target.clone().addScaledVector(toward, 3), toward.clone().negate());
+    return raycaster.intersectObjects(shown, false)[0]?.object.name ?? 'nothing';
+  });
+}
+
 function memoryStorage(initial: Record<string, string> = {}) {
   const items = new Map(Object.entries(initial));
   return {
@@ -78,13 +122,17 @@ describe('player look catalog', () => {
       }
     }
 
-    // Every choice shows a part set on both models; a choice may hide parts only one has.
-    for (const prefix of partPrefixes('nodes')) {
+    // Every choice shows a part set on both models. A name it shows or hides
+    // may be on only one of them, but is on one.
+    for (const { label, nodes } of partSets()) {
       for (const [index, names] of parts.entries()) {
-        expect(names.some((name) => name.startsWith(prefix)), `${STYLES[index]} ${prefix}`).toBe(true);
+        expect(
+          nodes.some((prefix) => names.some((name) => name.startsWith(prefix))),
+          `${STYLES[index]} ${label}`,
+        ).toBe(true);
       }
     }
-    for (const prefix of partPrefixes('hides')) {
+    for (const prefix of [...partPrefixes('nodes'), ...partPrefixes('hides')]) {
       expect(parts.some((names) => names.some((name) => name.startsWith(prefix))), prefix).toBe(true);
     }
   });
@@ -114,6 +162,13 @@ describe('player look catalog', () => {
     expect(shownParts(model, 'player_skirt')).toEqual([]);
     expect(shownParts(model, 'player_beanie_').length).toBeGreaterThan(0);
     expect(shownParts(model, 'player_scarf_')).toEqual([]);
+    expect(shownParts(model, 'player_bare_')).toEqual([]);
+  });
+
+  it('offers a beanie, a head scarf, or nothing on the head, and starts with the beanie', () => {
+    const headwear = AXES.find((axis) => axis.id === 'headwear');
+    expect(headwear?.options.map((option) => option.id)).toEqual(['beanie', 'scarf', 'none']);
+    expect(DEFAULT_PLAYER_LOOK.headwear).toBe('beanie');
   });
 
   it('gives every axis a valid default and unique option ids', () => {
@@ -231,8 +286,9 @@ describe('applyPlayerLook', () => {
     const hasEars = shownParts(model, 'player_ear_').length > 0;
     for (const gender of ['boy', 'girl']) {
       for (const bottoms of ['trousers', 'skirt']) {
-        for (const headwear of ['beanie', 'scarf']) {
+        for (const headwear of ['beanie', 'scarf', 'none']) {
           const combination = `${gender} ${bottoms} ${headwear}`;
+          const other = gender === 'boy' ? 'girl' : 'boy';
           applyPlayerLook(model, look({ style, gender, bottoms, headwear }));
 
           // The scarf is a full head covering: no hair or ear shows under it.
@@ -242,10 +298,13 @@ describe('applyPlayerLook', () => {
             expect(shownParts(model, 'player_ear_'), combination).toEqual([]);
           } else {
             expect(hair.some((name) => name.startsWith(`player_hair_${gender}_`)), combination).toBe(true);
-            const other = gender === 'boy' ? 'girl' : 'boy';
             expect(hair.some((name) => name.startsWith(`player_hair_${other}_`)), combination).toBe(false);
             expect(shownParts(model, 'player_ear_').length > 0, combination).toBe(hasEars);
           }
+          // The hair a hat covers shows only on a bare head, and only the chosen hairstyle's.
+          const bare = shownParts(model, 'player_bare_');
+          expect(bare.length > 0, combination).toBe(headwear === 'none');
+          expect(bare.some((name) => name.startsWith(`player_bare_hair_${other}_`)), combination).toBe(false);
           expect(shownParts(model, 'player_beanie_').length > 0, combination).toBe(headwear === 'beanie');
           expect(shownParts(model, 'player_scarf_').length > 0, combination).toBe(headwear === 'scarf');
           // The legs are covered either way: by trousers, or by the skirt and its leggings.
@@ -259,15 +318,33 @@ describe('applyPlayerLook', () => {
     }
   });
 
+  it.each(STYLES)('shows hair rather than scalp on the %s model\'s bare head from above', async (style) => {
+    const model = await loadPlayerModel(style);
+    for (const gender of ['boy', 'girl']) {
+      applyPlayerLook(model, look({ style, gender, headwear: 'none' }));
+      // The hair a hat would cover sits around the top of the head.
+      const head = middleOfShown(model, 'player_bare_');
+      for (const seen of seenFromAbove(model, head)) {
+        expect(seen, `${gender} bare head`).toMatch(/^player_(bare_)?hair_/);
+      }
+
+      // The beanie covers that hair, and none of it comes through the knit.
+      applyPlayerLook(model, look({ style, gender, headwear: 'beanie' }));
+      for (const seen of seenFromAbove(model, head)) {
+        expect(seen, `${gender} in the beanie`).toMatch(/^player_beanie_/);
+      }
+    }
+  });
+
   it('applies the same choices to the procedural stand-in shown before or instead of the GLB', () => {
     const fallback = new Group().add(createPlayerFallback());
     // Every part set has a stand-in; the parts a choice hides need not.
-    for (const prefix of partPrefixes('nodes')) {
+    for (const { label, nodes } of partSets()) {
       let found = false;
       fallback.traverse((child) => {
-        found ||= child.name.startsWith(prefix);
+        found ||= nodes.some((prefix) => child.name.startsWith(prefix));
       });
-      expect(found, prefix).toBe(true);
+      expect(found, label).toBe(true);
     }
 
     applyPlayerLook(fallback, look({ gender: 'girl', bottoms: 'skirt', headwear: 'scarf', outfit: 'rocket' }));
@@ -280,7 +357,14 @@ describe('applyPlayerLook', () => {
 
     applyPlayerLook(fallback, look({ style: 'realistic', gender: 'girl', headwear: 'beanie' }));
     expect(shownParts(fallback, 'player_hair_')).toEqual(['player_hair_girl_fallback_L', 'player_hair_girl_fallback_R']);
+    expect(shownParts(fallback, 'player_bare_')).toEqual([]);
     expect(shownParts(fallback, 'player_trousers')).toEqual(['player_trousers_fallback']);
+
+    applyPlayerLook(fallback, look({ gender: 'boy', headwear: 'none' }));
+    expect(shownParts(fallback, 'player_bare_')).toEqual(['player_bare_hair_fallback']);
+    expect(shownParts(fallback, 'player_hair_')).toEqual(['player_hair_boy_fallback']);
+    expect(shownParts(fallback, 'player_beanie_')).toEqual([]);
+    expect(shownParts(fallback, 'player_scarf_')).toEqual([]);
   });
 });
 
@@ -297,6 +381,19 @@ describe('saved look', () => {
     });
     savePlayerLook(chosen, storage);
     expect(loadPlayerLook(storage)).toEqual(chosen);
+  });
+
+  it('round-trips a bare head through storage', () => {
+    const storage = memoryStorage();
+    const chosen = look({ style: 'realistic', gender: 'girl', headwear: 'none' });
+    savePlayerLook(chosen, storage);
+    expect(loadPlayerLook(storage)).toEqual(chosen);
+  });
+
+  it.each(['beanie', 'scarf'])('keeps the %s of a look saved before a bare head could be chosen', (headwear) => {
+    const saved = { style: 'realistic', gender: 'boy', skin: 'light', outfit: 'forest', bottoms: 'trousers', headwear };
+    const older = memoryStorage({ 'camo-mode-2.player-look': JSON.stringify(saved) });
+    expect(loadPlayerLook(older)).toEqual(saved);
   });
 
   it('keeps known choices and defaults unknown or missing ones', () => {

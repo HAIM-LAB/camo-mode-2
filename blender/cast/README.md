@@ -49,7 +49,7 @@ Then, from the repository root:
   --python blender/cast/generate_realistic_player.py
 ```
 
-It overwrites `/assets/cast/player-realistic.glb` and `realistic-player-preview.png`. Before exporting it plays the walk and fails if a planted foot slides more than 6 mm, and it measures the gap between the hands and forearms and the body while standing and through both clips, in trousers and in the skirt, failing under 20 mm. After exporting it re-imports the GLB and checks its parts, clips, height, ground contact, triangle count (28,000 at most), and size (2.5 MB at most). It stops with a pointer back to this file if MPFB or the pack is missing. Add `-- --views <directory>` to also save close-up renders of every look.
+It overwrites `/assets/cast/player-realistic.glb` and `realistic-player-preview.png`. Before exporting it plays the walk and fails if a planted foot slides more than 6 mm, and it measures the gap between the hands and forearms and the body while standing and through both clips, in trousers and in the skirt, failing under 20 mm. After exporting it re-imports the GLB and checks its parts, clips, height, ground contact, triangle count (31,000 at most), and size (2.5 MB at most). It stops with a pointer back to this file if MPFB or the pack is missing. Add `-- --views <directory>` to also save renders of every look from all around, close-ups of the head included.
 
 No `.blend` is kept for this model: the script and the CC0 sources are the source, and the processed textures exist only inside the GLB.
 
@@ -58,7 +58,8 @@ What the script does with the MakeHuman sources:
 - Body: a young child of six or seven, just under six heads tall, with a round face, a slight smile, and relaxed eyes. It is built, dressed, animated, and checked at a real child's 1.1 m, then enlarged as a whole to 1.38 m so that it stands as tall in the playroom as the rest of the cast; enlarging keeps its proportions. MakeHuman's age control alone gives an older child's build, so head, leg, and shoulder morphs bring it to a young child's proportions. Boy and Girl share it; only the hair differs.
 - Skin under the clothes is removed from the mesh and blanked in the texture, so no unclothed body ships.
 - Textures become neutral detail maps that the outfit and skin colors multiply. The shirt's print is dropped and the shoes are untextured, so no logo or brand mark survives.
-- The skirt and its leggings are cut from the base mesh's own garment helpers. The beanie and the head scarf's wrap are layers fitted over the head, the scarf's drape is laid from the neck onto the collarbones, and the hair is trimmed to what shows below the beanie. All of them are placed from measurements of the built head, so they follow any change to the body's proportions.
+- The skirt and its leggings are cut from the base mesh's own garment helpers. The beanie and the head scarf's wrap are layers fitted over the head, and the scarf's drape is laid from the neck onto the collarbones. All of them are placed from measurements of the built head, so they follow any change to the body's proportions.
+- Each hairstyle is cut in two along the beanie's brim. The part below it shows under a hat; the part above it shows only on a bare head, so the beanie hides it rather than having it poke through the knit. The long hair lies flat against the upper skull as it comes from MakeHuman, which would give a bare head a pointed top, so above the brim it is lifted to an even depth. The hair a hat shows is not changed.
 - The walk is built from where the feet are on the ground and solved back to leg angles, so each planted foot stays put at the speed the game moves this player. The exported file records that speed as the rig's `walk_speed`: `WALK_SPEED` times the enlargement, 1.81 m/s. `moveSpeed` in `src/player-avatar.ts` must equal it, and `tests/player-avatar.test.ts` fails if it does not.
 - MakeHuman's A-pose is turned into a relaxed stand and made the rest pose, so the model stands naturally even where no clip plays. The arms are held a little out, so the hands and forearms hang clear of the top, the hips, and the skirt.
 
@@ -67,11 +68,11 @@ What the script does with the MakeHuman sources:
 - Binary glTF (`.glb`), meters, Y-up, forward +Z.
 - Character origins are centered between the feet at floor contact; floor is y=0.
 - Prop origins are centered horizontally at ground contact; floor is y=0.
-- The friends are approximately 1.4 m tall, the cartoon player 1.30 m, and the realistic player 1.38 m.
+- The friends are approximately 1.4 m tall, the cartoon player 1.30 m, and the realistic player 1.38 m, both players measured in the beanie. The realistic player's hair stands about a centimeter taller on a bare head.
 - Ball diameter is 0.34 m. Block dimensions are approximately 0.30 × 0.24 × 0.295 m including studs.
 - Everything from `generate_cast.py` uses vertex geometry and embedded glTF material values only. The realistic player also embeds its textures.
 - Both players carry `idle` and `walk` clips that loop in place. The cartoon player's clips move pivot nodes; the realistic player's move a skeleton.
-- The players' material and part names are runtime API: character customization repaints materials and shows part sets (hair, bottoms, headwear) by name, the same way on both models. See [`docs/asset-contract.md`](../../docs/asset-contract.md#player-models).
+- The players' material and part names are runtime API: character customization repaints materials and shows part sets (hair, bottoms, headwear or the bare head's hair) by name, the same way on both models. See [`docs/asset-contract.md`](../../docs/asset-contract.md#player-models).
 - Each player GLB carries every alternative part set; `cast-lineup.png` and `realistic-player-preview.png` show chosen looks rather than every set at once.
 
 The `.blend` keeps the five primitive assets in named collections and places them in a studio lineup; the cartoon player is deliberately turned around there to preview its third-person rear read while both friends face forward. Exported files are generated before those preview transforms and remain at their own local origins. The player's gold backpack and beanie provide its deliberate rear-view identity.

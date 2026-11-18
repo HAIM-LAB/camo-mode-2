@@ -41,7 +41,7 @@ CURRENT_PARENT: bpy.types.Object | None = None
 PIVOT_ORIGINS: dict[str, Vector] = {}
 MATERIALS: dict[str, bpy.types.Material] = {}
 PLAYER_KEY = "player-cartoon"
-LINEUP_HIDDEN_VARIANTS = ("player_hair_girl_", "player_skirt", "player_scarf_")
+LINEUP_HIDDEN_VARIANTS = ("player_hair_girl_", "player_skirt", "player_scarf_", "player_bare_")
 FPS = 30
 
 
@@ -482,20 +482,28 @@ def add_shoe(name: str, x: float, y: float, main_mat: bpy.types.Material, accent
 # The cartoon player's head: an ellipsoid the face is painted onto.
 HEAD_CENTER = Vector((0.0, 0.0, 0.86))
 HEAD_RADII = Vector((0.30, 0.275, 0.265))
+# Its hair behind and above the face: a second ellipsoid, sunk into the back of the head.
+HAIR_BACK_CENTER = Vector((0.0, 0.05, 0.878))
+HAIR_BACK_RADII = Vector((0.308, 0.262, 0.276))
 
 
-def head_point(yaw: float, pitch: float, lift: float = 0.0) -> Vector:
-    """A point on the head, lifted off the surface by lift meters.
+def head_direction(yaw: float, pitch: float) -> Vector:
+    """The way out of the head at an angle, as a unit vector.
 
     Angles are degrees from the middle of the face: yaw turns toward the
     character's +X side, pitch rises toward the crown.
     """
     yaw_r, pitch_r = math.radians(yaw), math.radians(pitch)
-    direction = Vector((
+    return Vector((
         math.sin(yaw_r) * math.cos(pitch_r),
         -math.cos(yaw_r) * math.cos(pitch_r),
         math.sin(pitch_r),
     ))
+
+
+def head_point(yaw: float, pitch: float, lift: float = 0.0) -> Vector:
+    """A point on the head at head_direction's angles, lifted off the surface by lift meters."""
+    direction = head_direction(yaw, pitch)
     surface = Vector(radius * axis for radius, axis in zip(HEAD_RADII, direction))
     return HEAD_CENTER + surface + direction * lift
 
@@ -579,7 +587,7 @@ def build_player() -> None:
     root["height_m"] = 1.30
     root["pose"] = "relaxed stand; idle and walk clips animate the pivots"
     root["rear_read"] = "gold backpack and beanie, teal tunic"
-    root["variants"] = "hair boy/girl, bottoms trousers/skirt, headwear beanie/head scarf; see add_player_variants()"
+    root["variants"] = "hair boy/girl, bottoms trousers/skirt, headwear beanie/head scarf/bare head; see add_player_hair() and add_player_headwear()"
 
     skin, skin_light = MATERIALS["Player Skin"], MATERIALS["Player Skin Light"]
     teal, teal_dark = MATERIALS["Player Teal"], MATERIALS["Player Teal Dark"]
@@ -621,7 +629,7 @@ def build_player() -> None:
         with pivot("pivot_head", (0.0, 0.0, 0.62)):
             add_ico("player_head", tuple(HEAD_CENTER), tuple(HEAD_RADII), skin, subdivisions=4, smooth=True)
             # Hair sits behind and above the face; the fringes below finish each look.
-            add_ico("player_hair_back", (0.0, 0.05, 0.878), (0.308, 0.262, 0.276), hair, subdivisions=3, smooth=True)
+            add_ico("player_hair_back", tuple(HAIR_BACK_CENTER), tuple(HAIR_BACK_RADII), hair, subdivisions=3, smooth=True)
 
             # The face is painted on: flat shapes that hug the head.
             ink, white = MATERIALS["Ink"], MATERIALS["Soft White"]
@@ -644,13 +652,16 @@ def add_player_hair() -> None:
 
       player_hair_boy_*   a short tufted fringe under the beanie
       player_hair_girl_*  side-swept bangs and two low bunches
+      player_bare_hair_*  the hair a hat covers, for the bare head: it joins
+                          either fringe to the back hair over the top of the head
     """
     global CURRENT_PARENT
     hair = MATERIALS["Player Hair"]
     outer, CURRENT_PARENT = CURRENT_PARENT, bpy.data.objects["pivot_head"]
     try:
         # Both fringes are painted on like the face: they follow the forehead and
-        # tuck up under the hat's cuff, leaving clear forehead above the eyes.
+        # tuck up under the hat's cuff or the bare head's hair, leaving clear
+        # forehead above the eyes.
         add_face_decal("player_hair_boy_fringe", -8.0, 25.0, 0.15, 0.032, hair, lift=0.012, tilt=-8.0)
         add_face_decal("player_hair_boy_tuft", 30.0, 26.5, 0.05, 0.025, hair, lift=0.01, tilt=20.0)
 
@@ -658,8 +669,91 @@ def add_player_hair() -> None:
         for side, sign in (("L", -1.0), ("R", 1.0)):
             add_ico(f"player_hair_girl_bunch_{side}", (sign * 0.325, 0.07, 0.7), (0.085, 0.085, 0.105), hair, smooth=True)
             add_ico(f"player_hair_girl_tie_{side}", (sign * 0.292, 0.06, 0.775), (0.04, 0.04, 0.03), MATERIALS["Player Gold"], smooth=True)
+
+        add_hair_cap("player_bare_hair_top", hair)
     finally:
         CURRENT_PARENT = outer
+
+
+def smoothstep(share: float) -> float:
+    share = min(max(share, 0.0), 1.0)
+    return share * share * (3.0 - 2.0 * share)
+
+
+def lift_onto_hair_back(yaw: float, pitch: float) -> float:
+    """How far a point of the head must be lifted to lie on the back hair.
+
+    Negative where the head stands proud of that hair, as it does across the face.
+    """
+    # In the space where the back hair is a unit sphere, the lifted point is
+    # start + step * lift; it is on the sphere at the root on the way out.
+    start = Vector(axis / radius for axis, radius in zip(head_point(yaw, pitch) - HAIR_BACK_CENTER, HAIR_BACK_RADII))
+    step = Vector(axis / radius for axis, radius in zip(head_direction(yaw, pitch), HAIR_BACK_RADII))
+    along = start.dot(step)
+    inside = along * along - step.dot(step) * (start.dot(start) - 1.0)
+    return (-along + math.sqrt(inside)) / step.dot(step) if inside > 0.0 else -math.inf
+
+
+# The bare head's hairline, in degrees. It runs level across the forehead,
+# through the fringes, as far as the temples. From there it curves down in
+# front of the back hair to the neck, and passes under the collar behind.
+HAIRLINE_FOREHEAD = 22.5  # Pitch across the forehead.
+HAIRLINE_NECK = -75.0  # Pitch around the back.
+HAIRLINE_TEMPLE = 48.0  # Yaw where the hairline leaves the forehead.
+HAIRLINE_JAW = 98.0  # Yaw where it reaches the neck.
+HAIR_DEPTH = 0.022  # How thick the hair lies over the top of the head, in meters.
+
+
+def hairline(yaw: float) -> float:
+    """The pitch of the bare head's hairline at a yaw."""
+    turn = (abs(yaw) - HAIRLINE_TEMPLE) / (HAIRLINE_JAW - HAIRLINE_TEMPLE)
+    if turn <= 0.0:
+        return HAIRLINE_FOREHEAD
+    if turn >= 1.0:
+        return HAIRLINE_NECK
+    # Falls away gently at the temple and ever more steeply toward the jaw.
+    return HAIRLINE_FOREHEAD - (HAIRLINE_FOREHEAD - HAIRLINE_NECK) * (1.0 - (1.0 - turn) ** (1.0 / 2.2))
+
+
+def add_hair_cap(name: str, mat: bpy.types.Material) -> bpy.types.Object:
+    """The hair of a bare head, from the hairline up to the crown.
+
+    Its edge lies close on the skin, like the painted fringes. From there it
+    swells to HAIR_DEPTH over the forehead and the temples, and behind them it
+    lies just outside the back hair, which it covers whole, so the head of
+    hair has no seam.
+    """
+    # Meridians every 9 degrees, as fine as the head itself, and every 3 where
+    # the hairline drops past the jaw.
+    yaws = sorted({-180.0 + 9.0 * step for step in range(40)} | {
+        sign * (75.0 + 3.0 * step) for sign in (-1.0, 1.0) for step in range(9)
+    })
+    # Evenly spaced rings: close enough over the back that the flat faces
+    # between them stay outside the back hair's curve.
+    columns, rings = len(yaws), 14
+    scalp = 0.27  # Meters of scalp per radian of pitch, near enough for spacing.
+    vertices: list[Vector] = []
+    for ring in range(rings):
+        for yaw in yaws:
+            pitch = hairline(yaw) + (90.0 - hairline(yaw)) * ring / rings
+            reach = math.radians(pitch - hairline(yaw)) * scalp  # Meters in from the edge.
+            over_scalp = 0.002 + (HAIR_DEPTH - 0.002) * smoothstep(reach / 0.07)
+            over_back = lift_onto_hair_back(yaw, pitch) + 0.004
+            # Whichever stands higher, eased into the other where they cross.
+            ease = 0.02 * smoothstep(reach / 0.05)
+            blend = max(ease - abs(over_scalp - over_back), 0.0)
+            lift = max(over_scalp, over_back) + (blend * blend / (4.0 * ease) if ease else 0.0)
+            vertices.append(head_point(yaw, pitch, lift))
+    crown = len(vertices)
+    vertices.append(head_point(0.0, 90.0, max(HAIR_DEPTH, lift_onto_hair_back(0.0, 90.0) + 0.004)))
+    faces: list[tuple[int, ...]] = []
+    for column in range(columns):
+        following = (column + 1) % columns
+        for ring in range(rings - 1):
+            low, high = ring * columns, (ring + 1) * columns
+            faces.append((low + column, low + following, high + following, high + column))
+        faces.append(((rings - 1) * columns + column, (rings - 1) * columns + following, crown))
+    return add_surface(name, vertices, faces, mat)
 
 
 def add_player_headwear() -> None:
