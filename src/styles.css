@@ -1340,7 +1340,7 @@ body[data-screen='customize'] #app > :not(.menu) {
 
 .customize__axes {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--pair-columns, 2), minmax(0, 1fr));
   align-content: start;
   gap: 18px 20px;
   /* Room for selection rings and focus outlines inside the scroll box. */
@@ -1361,9 +1361,9 @@ body[data-screen='customize'] #app > :not(.menu) {
   border: 0;
 }
 
-/* Two-choice axes share a row on wide screens. */
+/* Axes with few choices share a row on wide screens, each as wide as its number of choices. */
 .look-axis--pair {
-  grid-column: auto;
+  grid-column: span var(--span, 1);
 }
 
 .look-axis legend {
@@ -1529,8 +1529,18 @@ body[data-screen='customize'] #app > :not(.menu) {
   white-space: nowrap;
 }
 
+/* The shared row's cards are narrow: a smaller name keeps "Head scarf" inside its card's padding. */
 .look-axis--pair .look-option__name {
-  font-size: 16px;
+  font-size: 15px;
+}
+
+/* On those cards the check tucks further into its corner, to stay clear of the picture. */
+.look-axis--pair .look-option:has(input:checked)::after {
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  font-size: 11px;
 }
 
 @keyframes mascot-bob {

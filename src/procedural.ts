@@ -110,6 +110,12 @@ export function createPlayerFallback(): Group {
   hood.position.y = 0.86;
   avatar.add(hood);
 
+  // The hair a hat would cover, for the bare head.
+  const crown = mesh(new SphereGeometry(0.325, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), PLAYER_HAIR);
+  crown.name = 'player_bare_hair_fallback';
+  crown.position.y = 0.9;
+  avatar.add(crown);
+
   const fringe = mesh(new SphereGeometry(0.1, 12, 8), PLAYER_HAIR);
   fringe.name = 'player_hair_boy_fallback';
   fringe.scale.set(1.4, 0.35, 0.6);

@@ -94,11 +94,21 @@ close-ups are crops of the same page at twice the pixel density.
   body with a visible gap. These were captured with reduced motion forced, so
   the preview holds still at the front in the rest pose; both generators also
   measure that gap through every frame of the idle and walk clips.
+- `33`–`36`: nothing on the head, the third choice beside the beanie and the
+  head scarf: the cartoon Boy and Girl, then the realistic Boy and Girl, in
+  customization. Captured with reduced motion forced, like `24`–`30`.
+- `37`–`40`: the same four bare-headed characters turned to the front, the
+  side, and the back in customization.
+- `41`–`44`: the same four in the playroom, under its camera, from the front,
+  the side, and behind.
 
 Both characters were reviewed for age-appropriateness in every combination:
 - one shared child body per style, with Boy and Girl differing only in hair;
 - everyday clothes that cover the torso, arms, and legs;
 - skirts at or below the knee over leggings;
 - a full head covering that frames the face;
+- on a bare head, a child's everyday hair over the whole scalp from every
+  side: a bob with a fringe on the cartoon player, and short or long hair on
+  the realistic one;
 - on the realistic player, a young child's proportions and round face with a
   slight closed-mouth smile and relaxed eyes.

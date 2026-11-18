@@ -38,6 +38,10 @@ export const LOOK_ICONS: Readonly<Record<string, string>> = Object.freeze({
     <path d="M14.5 27 C14.5 7 49.5 7 49.5 27 Z" fill="var(--paint-pack)"/>
     <rect x="12.5" y="22.5" width="39" height="8" rx="4" fill="var(--paint-packDark)"/>
     ${face(37)}`),
+  bare: icon('11 10 42 42', `
+    <circle cx="32" cy="33" r="16" fill="var(--paint-skin)"/>
+    <path d="M15 30 C15 9 49 9 49 30 C46 24 39 22 32 25 C25 22 18 24 15 30 Z" fill="${HAIR}"/>
+    ${face(36)}`),
   scarf: icon('7 2 50 54', `
     <path d="M32 4 C17 4 11 16 11 30 C11 41 15 47 20 50 H44 C49 47 53 41 53 30 C53 16 47 4 32 4 Z" fill="var(--paint-scarf)"/>
     <path d="M12 44 C18 53 46 53 52 44 L55 55 H9 Z" fill="var(--paint-scarfDark)"/>

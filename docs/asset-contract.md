@@ -32,14 +32,14 @@ Materials, repainted by name:
 - On the realistic model the skin, top, and trousers are textured. Their textures are neutral detail maps, and the material color multiplies them, so repainting works the same way as on flat colors.
 
 Part sets, shown or hidden by node-name prefix (one shared body per model):
-- `player_hair_boy_*` and `player_hair_girl_*`: Boy and Girl differ only in hair.
+- `player_hair_boy_*` and `player_hair_girl_*`: Boy and Girl differ only in hair. These parts are the hair that shows below a hat.
 - `player_trousers*` and `player_skirt*`: bottoms. The skirt set includes the leggings worn under it, so the legs are covered either way.
-- `player_beanie_*` and `player_scarf_*`: headwear. The head scarf also hides every `player_hair_*` part and the realistic model's `player_ear_*`.
+- `player_beanie_*`, `player_scarf_*`, and `player_bare_*`: headwear, or none. The head scarf also hides every `player_hair_*` part and the realistic model's `player_ear_*`. `player_bare_*` is the hair a hat covers, so it shows only on a bare head. The cartoon model has one such part for both hairstyles. The realistic model has one for each, `player_bare_hair_boy_*` and `player_bare_hair_girl_*`, and Boy or Girl picks between them.
 
-All parts export together, so each model's bounds include its tallest headwear. The default look is Boy, trousers, and beanie in the authored colors.
+All parts export together, so each model's bounds include its tallest part: the beanie's bobble on the cartoon model, and on the realistic one the hair of a bare head, which stands about a centimeter above the beanie. The default look is Boy, trousers, and beanie in the authored colors.
 
 Clips: each model carries `idle` and `walk`, looping in place. `src/player-avatar.ts` finds them by those names, cross-fades between them, and plays the walk faster or slower with the player's speed. A model without both clips still works: it hops like the procedural stand-in.
 
 Each style has its own movement speed, also in `src/player-avatar.ts`. The cartoon player toddles across the room at 2.75 m/s. The realistic player moves at 1.81 m/s, an easy walk at its playroom size: its walk clip plants each foot for exactly that speed, so the feet do not slide. The model records the speed as its rig's `walk_speed`, and `tests/player-avatar.test.ts` fails if the game's speed for this player differs from it.
 
-Both players stand about as tall as the friends: the cartoon player 1.30 m and the realistic player 1.38 m. The realistic child is modeled at a real child's height and enlarged as a whole in its generator, so no scaling happens in the application.
+Both players stand about as tall as the friends: the cartoon player 1.30 m and the realistic player 1.38 m, each in its beanie. The realistic child is modeled at a real child's height and enlarged as a whole in its generator, so no scaling happens in the application.

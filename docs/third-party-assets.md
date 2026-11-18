@@ -18,7 +18,7 @@ MPFB is only a build tool here. Its source code is GPL-3.0-or-later, and none of
 | Skin `young_caucasian_female` | Skin detail, turned into a neutral map that the chosen tone multiplies. Every region the clothes cover is blanked. | MakeHuman system assets | CC0 1.0 |
 | Eyes `low-poly` with the `brown` iris texture | Eyes | MakeHuman system assets | CC0 1.0 |
 | Eyebrows `eyebrow001`, eyelashes `eyelashes01` | Shape only; both are recolored | MakeHuman system assets | CC0 1.0 |
-| Hair `short02` and `long01` | Boy and Girl hair; strand detail only, in one shared color | MakeHuman system assets | CC0 1.0 |
+| Hair `short02` and `long01` | Boy and Girl hair, each whole: the part below the beanie's brim shows under a hat, the rest on a bare head. Strand detail only, in one shared color. | MakeHuman system assets | CC0 1.0 |
 | Clothes `male_casualsuit02` | Top and trousers. Only fold shading and the denim weave are kept; the print on the shirt is not used. | MakeHuman system assets | CC0 1.0 |
 | Clothes `shoes06` | Sneaker and sock shapes. Its texture is not used. | MakeHuman system assets | CC0 1.0 |
 
