@@ -235,6 +235,8 @@ SPINE = (
 )
 NECK = (-0.3, -0.15)  # Between these the head's movement eases into the body's.
 TILE = 0.16  # Meters of skin one repeat of the scale texture covers.
+# How far inside the body's skin, in meters, each leg must begin.
+MIN_LEG_ROOT_DEPTH = 0.03
 
 
 def realistic_tail() -> list[Vector]:
@@ -288,9 +290,13 @@ def skeleton() -> tuple[dict[str, list[tuple[Vector, float]]], list[Sample]]:
     tail = realistic_tail()
     lines = {"spine": spine + [(middle, tail_radius(index / (len(tail) - 1))) for index, middle in enumerate(tail)]}
     for name, sign, top, ankle, sole in LEGS:
-        # Each leg bends out and up at the elbow or knee before it comes down to the foot.
+        # Each leg is rooted deep in the body, beside the spine, so that it is
+        # joined to it from every angle. It comes out at the shoulder or hip and
+        # bends out and up at the elbow or knee before it comes down to the foot.
+        beside = min(spine, key=lambda point: abs(point[0].y - top[1]))[0]
+        root = Vector((sign * 0.04, top[1], beside.z - 0.015))
         elbow = Vector(top).lerp(Vector(ankle), 0.45) + Vector((sign * 0.04, 0.0, 0.035))
-        lines[name] = [(Vector(top), 0.064), (elbow, 0.05), (Vector(ankle), 0.037), (Vector((sole[0], sole[1], 0.03)), 0.03)]
+        lines[name] = [(root, 0.072), (Vector(top), 0.066), (elbow, 0.05), (Vector(ankle), 0.037), (Vector((sole[0], sole[1], 0.03)), 0.03)]
     samples = []
     for name, points in lines.items():
         for index, ((start, wide), (end, narrow)) in enumerate(zip(points, points[1:])):
@@ -488,6 +494,16 @@ def build_realistic() -> tuple[bpy.types.Object, list[bpy.types.Object]]:
             raise SystemExit(f"Camo has no skin at y={y}")
         return hit
 
+    # No leg may float: each begins well inside the body and moves with it there.
+    for name, points in lines.items():
+        if name == "spine":
+            continue
+        location, normal, _, distance = surface.find_nearest(points[0][0])
+        depth = distance if (points[0][0] - location).dot(normal) < 0.0 else -distance
+        print(f"{'PASS' if depth >= MIN_LEG_ROOT_DEPTH else 'FAIL'} realistic Camo {name} leg: rooted {depth * 1000:.0f} mm inside the body")
+        if depth < MIN_LEG_ROOT_DEPTH:
+            raise RuntimeError(f"Camo's {name} leg is not joined to the body")
+
     # A casque rising behind the eyes, and a low crest of soft spikes down the back.
     casque = primitive(
         bpy.ops.mesh.primitive_uv_sphere_add, "camo_casque", Vector((0.0, -0.3, 0.545)), (0.05, 0.15, 0.07),
@@ -532,7 +548,9 @@ def build_realistic() -> tuple[bpy.types.Object, list[bpy.types.Object]]:
     def along_body(co: Vector) -> dict[str, float]:
         sample = near(co)
         if sample.part == "leg":
-            return {"root": 1.0}
+            # The top of a leg rides with the body it is rooted in; from the knee down it stays planted.
+            planted = smoothstep(0.3, 0.62, sample.share)
+            return {"root": planted, "body": 1.0 - planted}
         if sample.part == "tail":
             second = smoothstep(0.28, 0.4, sample.share)
             third = smoothstep(0.6, 0.72, sample.share)
