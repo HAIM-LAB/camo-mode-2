@@ -164,7 +164,8 @@ export class CamoDemoApp {
     this.player = new PlayerController(PLAYER_SPAWN, this.avatar.moveSpeed);
 
     this.entities = [
-      wrapEntity('camo', 'Camo', 'camo', SCENE_ANCHORS.camo, createCamoFallback(), 1.35),
+      // Each character starts at a different point of their idle loop.
+      wrapEntity('camo', 'Camo', 'camo', SCENE_ANCHORS.camo, createCamoFallback(), 1.35, { idle: new IdleMotion(2.1) }),
       wrapEntity(
         'friend-a',
         'Friend A',
@@ -172,7 +173,6 @@ export class CamoDemoApp {
         SCENE_ANCHORS.friendA,
         createFriendFallback(fallbackColors.friendA, fallbackColors.friendAAccent, 'friend-a'),
         1.62,
-        // Each friend starts at a different point of their loop.
         { worldLabel: 'INSIDE • FRIEND A', location: 'indoors', idle: new IdleMotion(1.3) },
       ),
       wrapEntity(
@@ -350,7 +350,8 @@ export class CamoDemoApp {
     for (const entity of this.entities) {
       if (entity.kind === 'ball' && !entity.carried) entity.visual.rotation.y += delta * 0.5;
       if (entity.kind === 'camo') {
-        entity.visual.position.y = Math.sin(this.elapsed * 2.1) * 0.018;
+        // The stand-in bobs; a loaded Camo breathes through its own idle clip instead.
+        entity.visual.position.y = entity.idle?.motion === 'idle' ? 0 : Math.sin(this.elapsed * 2.1) * 0.018;
       }
     }
   }
@@ -467,19 +468,23 @@ export class CamoDemoApp {
       },
       {
         player: this.avatar.prepare,
-        friendA: this.friendPreparer('friend-a'),
-        friendB: this.friendPreparer('friend-b'),
+        camo: this.castPreparer('camo'),
+        friendA: this.castPreparer('friend-a', FRIEND_LABEL_GAP),
+        friendB: this.castPreparer('friend-b', FRIEND_LABEL_GAP),
       },
     );
   }
 
-  /** Binds a friend's idle clip and floats their name label just above their head. */
-  private friendPreparer(id: string): (model: Object3D) => void {
+  /**
+   * Binds a character's idle clip. With a label gap, their name label then
+   * floats that far above the loaded model's head.
+   */
+  private castPreparer(id: string, labelGap?: number): (model: Object3D) => void {
     const entity = this.entityById(id);
     return (model) => {
       entity.idle?.prepare(model);
       const height = entity.idle?.height;
-      if (height) entity.labelHeight = height + FRIEND_LABEL_GAP;
+      if (height && labelGap !== undefined) entity.labelHeight = height + labelGap;
     };
   }
 

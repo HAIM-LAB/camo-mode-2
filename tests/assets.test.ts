@@ -82,9 +82,9 @@ describe('optional asset loader', () => {
     const realistic = assetUrls('realistic');
     expect(cartoon.player).toBe('/assets/cast/player-cartoon.glb');
     expect(realistic.player).toBe('/assets/cast/player-realistic.glb');
-    for (const friend of ['friendA', 'friendB'] as const) {
-      expect(cartoon[friend]).toMatch(/-cartoon\.glb$/);
-      expect(realistic[friend]).toMatch(/-realistic\.glb$/);
+    for (const character of ['camo', 'friendA', 'friendB'] as const) {
+      expect(cartoon[character]).toMatch(/-cartoon\.glb$/);
+      expect(realistic[character]).toMatch(/-realistic\.glb$/);
     }
     for (const shared of ['room', 'ball', 'block'] as const) {
       expect(realistic[shared]).toBe(cartoon[shared]);

@@ -455,6 +455,8 @@ HEAD_RADII = Vector((0.30, 0.275, 0.265))
 # Its hair behind and above the face: a second ellipsoid, sunk into the back of the head.
 HAIR_BACK_CENTER = Vector((0.0, 0.05, 0.878))
 HAIR_BACK_RADII = Vector((0.308, 0.262, 0.276))
+# An ellipsoid to paint on: its center and radii. The children's heads are the default.
+Ellipsoid = tuple[Vector, Vector]
 
 
 def head_direction(yaw: float, pitch: float) -> Vector:
@@ -471,11 +473,15 @@ def head_direction(yaw: float, pitch: float) -> Vector:
     ))
 
 
-def head_point(yaw: float, pitch: float, lift: float = 0.0) -> Vector:
-    """A point on the head at head_direction's angles, lifted off the surface by lift meters."""
+def head_point(yaw: float, pitch: float, lift: float = 0.0, head: Ellipsoid | None = None) -> Vector:
+    """A point on the head at head_direction's angles, lifted off the surface by lift meters.
+
+    head is another ellipsoid to measure on, for a character with a head of its own shape.
+    """
+    center, radii = head or (HEAD_CENTER, HEAD_RADII)
     direction = head_direction(yaw, pitch)
-    surface = Vector(radius * axis for radius, axis in zip(HEAD_RADII, direction))
-    return HEAD_CENTER + surface + direction * lift
+    surface = Vector(radius * axis for radius, axis in zip(radii, direction))
+    return center + surface + direction * lift
 
 
 def add_face_decal(
@@ -488,6 +494,7 @@ def add_face_decal(
     *,
     lift: float = 0.004,
     tilt: float = 0.0,
+    head: Ellipsoid | None = None,
 ) -> bpy.types.Object:
     """A painted-on oval: a patch of faces that follows the head's curve.
 
@@ -496,9 +503,10 @@ def add_face_decal(
     """
     rings, segments = 3, 18
     tilt_r = math.radians(tilt)
-    meters_per_yaw = math.radians(1.0) * HEAD_RADII.x * math.cos(math.radians(pitch))
-    meters_per_pitch = math.radians(1.0) * HEAD_RADII.z
-    vertices = [head_point(yaw, pitch, lift)]
+    radii = (head or (HEAD_CENTER, HEAD_RADII))[1]
+    meters_per_yaw = math.radians(1.0) * radii.x * math.cos(math.radians(pitch))
+    meters_per_pitch = math.radians(1.0) * radii.z
+    vertices = [head_point(yaw, pitch, lift, head)]
     for ring in range(1, rings + 1):
         reach = ring / rings
         for segment in range(segments):
@@ -512,6 +520,7 @@ def add_face_decal(
                 yaw + across / meters_per_yaw,
                 pitch + up / meters_per_pitch,
                 lift * (1.0 - 0.75 * reach * reach),
+                head,
             ))
     faces: list[tuple[int, ...]] = []
     for segment in range(segments):
@@ -523,7 +532,7 @@ def add_face_decal(
     return add_surface(name, vertices, faces, mat)
 
 
-def add_smile(name: str, half_span: float, pitch: float, rise: float, thickness: float, mat: bpy.types.Material) -> bpy.types.Object:
+def add_smile(name: str, half_span: float, pitch: float, rise: float, thickness: float, mat: bpy.types.Material, *, head: Ellipsoid | None = None) -> bpy.types.Object:
     """A painted-on smile: an arc across the face whose ends curl up by rise degrees."""
     columns = 14
     vertices: list[Vector] = []
@@ -533,8 +542,8 @@ def add_smile(name: str, half_span: float, pitch: float, rise: float, thickness:
         # Tapered to rounded tips.
         half = max(thickness * math.sqrt(max(1.0 - along * along, 0.0)), 0.04)
         lift = 0.0035 * (1.0 - 0.6 * along * along)
-        vertices.append(head_point(half_span * along, middle - half, lift))
-        vertices.append(head_point(half_span * along, middle + half, lift))
+        vertices.append(head_point(half_span * along, middle - half, lift, head))
+        vertices.append(head_point(half_span * along, middle + half, lift, head))
     faces = [
         (2 * column, 2 * column + 2, 2 * column + 3, 2 * column + 1)
         for column in range(columns)
@@ -1354,7 +1363,7 @@ def build_block() -> None:
 # Export, source scene, preview, and validation
 
 
-def export_asset(key: str) -> Path:
+def export_asset(key: str, directory: Path = OUTPUT_DIR) -> Path:
     root = ASSET_ROOTS[key]
     bpy.ops.object.select_all(action="DESELECT")
     root.location = (0.0, 0.0, 0.0)
@@ -1362,7 +1371,7 @@ def export_asset(key: str) -> Path:
     for child in root.children_recursive:
         child.select_set(True)
     bpy.context.view_layer.objects.active = root
-    destination = OUTPUT_DIR / f"{key}.glb"
+    destination = directory / f"{key}.glb"
     bpy.ops.export_scene.gltf(
         filepath=str(destination),
         export_format="GLB",

@@ -45,13 +45,13 @@ const SCENE_ASSET_URLS = Object.freeze({
 export const CAST_ASSET_URLS: Readonly<Record<PlayerStyleId, Readonly<Record<CastAssetId, string>>>> = Object.freeze({
   cartoon: Object.freeze({
     player: '/assets/cast/player-cartoon.glb',
-    camo: '/assets/camo/camo.glb',
+    camo: '/assets/camo/camo-cartoon.glb',
     friendA: '/assets/cast/friend-a-cartoon.glb',
     friendB: '/assets/cast/friend-b-cartoon.glb',
   }),
   realistic: Object.freeze({
     player: '/assets/cast/player-realistic.glb',
-    camo: '/assets/camo/camo.glb',
+    camo: '/assets/camo/camo-realistic.glb',
     friendA: '/assets/cast/friend-a-realistic.glb',
     friendB: '/assets/cast/friend-b-realistic.glb',
   }),
