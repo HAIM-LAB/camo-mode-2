@@ -62,6 +62,11 @@ export function readMovementIntent(keys: ReadonlySet<string>): Vector2 {
   return intent.lengthSq() > 1 ? intent.normalize() : intent;
 }
 
+/** The signed turn, in radians, that takes one heading to another the short way round. */
+export function shortestAngleDelta(from: number, to: number): number {
+  return Math.atan2(Math.sin(to - from), Math.cos(to - from));
+}
+
 export class PlayerController {
   readonly position: Vector3;
   readonly velocity = new Vector3();
@@ -85,7 +90,12 @@ export class PlayerController {
     this.constrainToRoom();
 
     if (this.velocity.lengthSq() > 0.02) {
-      this.facing.lerp(this.velocity.clone().normalize(), 1 - Math.exp(-14 * delta)).normalize();
+      // Turn through the angle rather than blending the vectors: a blend toward
+      // the exact opposite direction passes through zero and never turns around.
+      const current = Math.atan2(this.facing.x, this.facing.z);
+      const target = Math.atan2(this.velocity.x, this.velocity.z);
+      const yaw = current + shortestAngleDelta(current, target) * (1 - Math.exp(-14 * delta));
+      this.facing.set(Math.sin(yaw), 0, Math.cos(yaw));
     }
   }
 

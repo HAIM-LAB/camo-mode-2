@@ -28,6 +28,7 @@ import {
   entitiesByProximity,
   nearestPickup,
   promptFor,
+  shortestAngleDelta,
 } from './gameplay';
 import {
   createBallFallback,
@@ -108,10 +109,6 @@ function wrapEntity(
     worldLabel: options.worldLabel ?? label,
     location: options.location,
   };
-}
-
-function shortestAngleDelta(from: number, to: number): number {
-  return Math.atan2(Math.sin(to - from), Math.cos(to - from));
 }
 
 export class CamoDemoApp {

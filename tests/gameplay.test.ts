@@ -87,6 +87,21 @@ describe('movement controls', () => {
     expect(controller.velocity.length()).toBeGreaterThan(0);
     expect(controller.velocity.length()).toBeLessThan(movingSpeed);
   });
+
+  it('turns to face the way it walks, including straight back the way it faced', () => {
+    for (const key of ['arrowdown', 'arrowup', 'arrowleft', 'arrowright']) {
+      const controller = new PlayerController(PLAYER_SPAWN);
+      // The player starts facing into the room; arrowdown is the exact opposite.
+      expect(controller.facing.z).toBe(-1);
+      for (let frame = 0; frame < 30; frame += 1) {
+        controller.update(new Set([key]), 1 / 60);
+      }
+
+      const heading = controller.velocity.clone().normalize();
+      expect(controller.facing.length(), key).toBeCloseTo(1);
+      expect(controller.facing.dot(heading), key).toBeGreaterThan(0.99);
+    }
+  });
 });
 
 describe('proximity and prompts', () => {
