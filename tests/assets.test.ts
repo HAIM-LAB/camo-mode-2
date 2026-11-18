@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AnimationClip, Box3, BoxGeometry, Group, Mesh, MeshBasicMaterial, Vector3 } from 'three';
 import { GLTF, GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -76,12 +77,24 @@ describe('optional asset loader', () => {
     expect(target.userData.assetMode).toBe('glb');
   });
 
-  it('loads the player model of the chosen style and leaves every other asset alone', () => {
+  it('loads the whole cast in the chosen style and the same room and toys in either', () => {
     const cartoon = assetUrls('cartoon');
     const realistic = assetUrls('realistic');
     expect(cartoon.player).toBe('/assets/cast/player-cartoon.glb');
     expect(realistic.player).toBe('/assets/cast/player-realistic.glb');
-    expect({ ...realistic, player: cartoon.player }).toEqual(cartoon);
+    for (const friend of ['friendA', 'friendB'] as const) {
+      expect(cartoon[friend]).toMatch(/-cartoon\.glb$/);
+      expect(realistic[friend]).toMatch(/-realistic\.glb$/);
+    }
+    for (const shared of ['room', 'ball', 'block'] as const) {
+      expect(realistic[shared]).toBe(cartoon[shared]);
+    }
+  });
+
+  it.each(['cartoon', 'realistic'] as const)('ships every model the %s style asks for', (style) => {
+    for (const url of Object.values(assetUrls(style))) {
+      expect(existsSync(new URL(`../public${url}`, import.meta.url)), url).toBe(true);
+    }
   });
 
   it('keeps the stand-in when a model cannot be loaded', async () => {

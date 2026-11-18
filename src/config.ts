@@ -28,24 +28,44 @@ export type AssetId =
   | 'ball'
   | 'block';
 
+/** The characters: the player and everyone the player can talk to. */
+export type CastAssetId = 'player' | 'camo' | 'friendA' | 'friendB';
+
+/** The room and the toys look the same in every style. */
 const SCENE_ASSET_URLS = Object.freeze({
-  camo: '/assets/camo/camo.glb',
   room: '/assets/world/living-room.glb',
-  friendA: '/assets/cast/friend-a.glb',
-  friendB: '/assets/cast/friend-b.glb',
   ball: '/assets/cast/ball.glb',
   block: '/assets/cast/block.glb',
 });
 
-/** One player model per style the child can pick. */
-export const PLAYER_ASSET_URLS: Readonly<Record<PlayerStyleId, string>> = Object.freeze({
-  cartoon: '/assets/cast/player-cartoon.glb',
-  realistic: '/assets/cast/player-realistic.glb',
+/**
+ * One model of each character per style the child can pick. The whole cast is
+ * drawn in the chosen style, and only that style's models are requested.
+ */
+export const CAST_ASSET_URLS: Readonly<Record<PlayerStyleId, Readonly<Record<CastAssetId, string>>>> = Object.freeze({
+  cartoon: Object.freeze({
+    player: '/assets/cast/player-cartoon.glb',
+    camo: '/assets/camo/camo.glb',
+    friendA: '/assets/cast/friend-a-cartoon.glb',
+    friendB: '/assets/cast/friend-b-cartoon.glb',
+  }),
+  realistic: Object.freeze({
+    player: '/assets/cast/player-realistic.glb',
+    camo: '/assets/camo/camo.glb',
+    friendA: '/assets/cast/friend-a-realistic.glb',
+    friendB: '/assets/cast/friend-b-realistic.glb',
+  }),
 });
 
-/** Every optional asset's URL when the player is drawn in the given style. */
+/** One player model per style the child can pick. */
+export const PLAYER_ASSET_URLS: Readonly<Record<PlayerStyleId, string>> = Object.freeze({
+  cartoon: CAST_ASSET_URLS.cartoon.player,
+  realistic: CAST_ASSET_URLS.realistic.player,
+});
+
+/** Every optional asset's URL when the cast is drawn in the given style. */
 export function assetUrls(style: PlayerStyleId): Readonly<Record<AssetId, string>> {
-  return { ...SCENE_ASSET_URLS, player: PLAYER_ASSET_URLS[style] };
+  return { ...SCENE_ASSET_URLS, ...CAST_ASSET_URLS[style] };
 }
 
 export const PLAYER_RADIUS = 0.36;
