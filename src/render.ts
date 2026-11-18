@@ -41,5 +41,7 @@ export function createPlayroomLights(halfWidth: number, halfHeight: number): [He
   sun.shadow.camera.bottom = -halfHeight;
   sun.shadow.camera.near = 0.5;
   sun.shadow.camera.far = 22;
+  // Smooth-shaded characters would otherwise shade themselves in a moire of stripes.
+  sun.shadow.normalBias = 0.03;
   return [hemisphere, sun];
 }

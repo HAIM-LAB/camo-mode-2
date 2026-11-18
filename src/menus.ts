@@ -4,7 +4,10 @@ import {
   LOOK_AXES,
   LookAxis,
   LookAxisId,
+  PLAYER_STYLES,
   PlayerLook,
+  PlayerStyle,
+  PlayerStyleId,
   lookPaint,
   savePlayerLook,
   surfaceColor,
@@ -13,7 +16,7 @@ import {
 /** Two-choice axes that share one row on wide screens. */
 const PAIRED_AXES: ReadonlySet<string> = new Set(['bottoms', 'headwear']);
 
-export type Screen = 'start' | 'customize' | 'game' | 'error';
+export type Screen = 'start' | 'style' | 'customize' | 'game' | 'error';
 
 /** `?skipMenu=1` goes straight into the playroom with the saved (or default) look. */
 export function shouldSkipMenu(search: string): boolean {
@@ -37,39 +40,77 @@ export interface MenuFlowOptions {
   onError: (error: unknown) => void;
 }
 
-/** Start menu, then character customization, then hands the chosen look to the game. */
+/**
+ * Start menu, then the style choice, then character customization in that
+ * style, then hands the chosen look to the game.
+ */
 export class MenuFlow {
+  private readonly styleMenu = requiredElement<HTMLElement>('style-menu');
   private readonly customize = requiredElement<HTMLElement>('customize');
   private readonly startPlay = requiredElement<HTMLButtonElement>('start-play');
+  private readonly styleBack = requiredElement<HTMLButtonElement>('style-back');
+  private readonly styleCards = requiredElement<HTMLElement>('style-cards');
   private readonly back = requiredElement<HTMLButtonElement>('customize-back');
   private readonly play = requiredElement<HTMLButtonElement>('customize-play');
   private readonly stage = requiredElement<HTMLElement>('look-stage');
   private readonly axesRoot = requiredElement<HTMLElement>('look-axes');
   private look: PlayerLook;
-  private preview?: LookPreview;
+  /** The live previews of whichever screen is showing; none outlives its screen. */
+  private previews: LookPreview[] = [];
 
   constructor(private readonly options: MenuFlowOptions) {
     this.look = options.look;
+    this.renderStyleCards();
     this.renderAxes();
-    this.paintIcons();
-    this.startPlay.addEventListener('click', () => this.showCustomize());
-    this.back.addEventListener('click', () => this.showStart());
+    this.startPlay.addEventListener('click', () => this.showStyle());
+    this.styleBack.addEventListener('click', () => this.showStart());
+    this.back.addEventListener('click', () => this.showStyle());
     this.play.addEventListener('click', () => this.finish());
-    this.customize.addEventListener('keydown', (event) => {
+    this.styleMenu.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') this.showStart();
+    });
+    this.customize.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape') this.showStyle();
     });
   }
 
   showStart(): void {
-    this.closePreview();
+    this.closePreviews();
     showScreen('start');
     this.startPlay.focus();
   }
 
-  showCustomize(): void {
-    showScreen('customize');
+  /** Two cards, each showing its character in the child's current look. */
+  showStyle(): void {
+    this.closePreviews();
+    showScreen('style');
     try {
-      this.preview ??= new LookPreview(this.stage, this.look);
+      for (const card of this.cardButtons()) {
+        const current = card.dataset.style === this.look.style;
+        card.classList.toggle('style-card--current', current);
+        if (current) card.setAttribute('aria-current', 'true');
+        else card.removeAttribute('aria-current');
+        const stage = card.querySelector<HTMLElement>('.style-card__stage');
+        if (!stage) throw new Error('A style card is missing its stage');
+        this.previews.push(new LookPreview(
+          stage,
+          { ...this.look, style: card.dataset.style as PlayerStyleId },
+          { interactive: false },
+        ));
+      }
+    } catch (error) {
+      this.options.onError(error);
+      return;
+    }
+    this.styleCards.querySelector<HTMLButtonElement>('.style-card--current')?.focus();
+  }
+
+  showCustomize(): void {
+    this.closePreviews();
+    showScreen('customize');
+    this.paintIcons();
+    try {
+      this.previews.push(new LookPreview(this.stage, this.look, { interactive: true }));
     } catch (error) {
       this.options.onError(error);
       return;
@@ -78,19 +119,29 @@ export class MenuFlow {
   }
 
   private finish(): void {
-    this.closePreview();
+    this.closePreviews();
     this.options.onPlay(this.look);
   }
 
-  private closePreview(): void {
-    this.preview?.dispose();
-    this.preview = undefined;
+  private closePreviews(): void {
+    for (const preview of this.previews) preview.dispose();
+    this.previews = [];
+  }
+
+  private cardButtons(): HTMLButtonElement[] {
+    return [...this.styleCards.querySelectorAll<HTMLButtonElement>('.style-card')];
+  }
+
+  private chooseStyle(style: PlayerStyleId): void {
+    this.look = { ...this.look, style };
+    savePlayerLook(this.look);
+    this.showCustomize();
   }
 
   private choose(axis: LookAxisId, option: string): void {
     this.look = { ...this.look, [axis]: option };
     savePlayerLook(this.look);
-    this.preview?.setLook(this.look);
+    for (const preview of this.previews) preview.setLook(this.look);
     this.paintIcons();
   }
 
@@ -99,6 +150,29 @@ export class MenuFlow {
     for (const [role, surface] of Object.entries(lookPaint(this.look))) {
       if (surface) this.axesRoot.style.setProperty(`--paint-${role}`, surfaceColor(surface));
     }
+  }
+
+  private renderStyleCards(): void {
+    for (const style of PLAYER_STYLES) this.styleCards.append(this.styleCard(style));
+  }
+
+  private styleCard(style: PlayerStyle): HTMLButtonElement {
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'style-card';
+    card.dataset.style = style.id;
+    card.addEventListener('click', () => this.chooseStyle(style.id));
+
+    const stage = document.createElement('span');
+    stage.className = 'style-card__stage';
+    const name = document.createElement('span');
+    name.className = 'style-card__name';
+    name.textContent = style.label;
+    const blurb = document.createElement('span');
+    blurb.className = 'style-card__blurb';
+    blurb.textContent = style.blurb;
+    card.append(stage, name, blurb);
+    return card;
   }
 
   private renderAxes(): void {

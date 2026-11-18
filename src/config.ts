@@ -1,4 +1,5 @@
 import { Vector3 } from 'three';
+import type { PlayerStyleId } from './player-look';
 
 export const ROOM_BOUNDS = Object.freeze({
   minX: -6,
@@ -27,15 +28,25 @@ export type AssetId =
   | 'ball'
   | 'block';
 
-export const ASSET_URLS: Readonly<Record<AssetId, string>> = Object.freeze({
+const SCENE_ASSET_URLS = Object.freeze({
   camo: '/assets/camo/camo.glb',
   room: '/assets/world/living-room.glb',
-  player: '/assets/cast/player.glb',
   friendA: '/assets/cast/friend-a.glb',
   friendB: '/assets/cast/friend-b.glb',
   ball: '/assets/cast/ball.glb',
   block: '/assets/cast/block.glb',
 });
+
+/** One player model per style the child can pick. */
+export const PLAYER_ASSET_URLS: Readonly<Record<PlayerStyleId, string>> = Object.freeze({
+  cartoon: '/assets/cast/player-cartoon.glb',
+  realistic: '/assets/cast/player-realistic.glb',
+});
+
+/** Every optional asset's URL when the player is drawn in the given style. */
+export function assetUrls(style: PlayerStyleId): Readonly<Record<AssetId, string>> {
+  return { ...SCENE_ASSET_URLS, player: PLAYER_ASSET_URLS[style] };
+}
 
 export const PLAYER_RADIUS = 0.36;
 export const INTERACTION_RADIUS = 1.55;

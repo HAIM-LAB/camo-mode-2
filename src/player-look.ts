@@ -1,26 +1,30 @@
 import { Color, Mesh, MeshStandardMaterial, Object3D } from 'three';
 
 /**
- * Player customization. The approved player (`build_player()` in
- * blender/cast/generate_cast.py) is one model whose parts share a small set of
- * named materials, plus alternative part sets (hair, skirt, head scarf) under
- * named node prefixes. Each look axis repaints materials by name and shows one
- * part set per choice. The menu preview and the in-game player both go through
- * applyPlayerLook, so they cannot drift.
+ * Player customization. The child first picks a style, which picks the model:
+ * the cartoon player (`build_player()` in blender/cast/generate_cast.py) or the
+ * realistic one (blender/cast/generate_realistic_player.py). Both models name
+ * their materials and their alternative part sets (hair, bottoms, headwear) the
+ * same way, so one catalog of look axes drives either: each axis repaints
+ * materials by name and shows one part set per choice. The menu preview and the
+ * in-game player both go through applyPlayerLook, so they cannot drift.
  *
  * A new axis is one more entry in LOOK_AXES: the menu renders it, storage
- * keeps it, and applyPlayerLook applies it.
+ * keeps it, and applyPlayerLook applies it. Both models express every axis.
  */
 
-/** Materials authored in build_player() and exported into player.glb by name. */
+/** Materials the player models carry by name. A model need not use every one. */
 export const PLAYER_MATERIALS = Object.freeze({
   skin: 'Player Skin',
   skinLight: 'Player Skin Light',
+  blush: 'Player Blush',
   hoodie: 'Player Teal',
   hoodieDark: 'Player Teal Dark',
   trousers: 'Player Coral',
+  leggings: 'Player Leggings',
   pack: 'Player Gold',
   packDark: 'Player Gold Dark',
+  shoes: 'Player Shoes',
   scarf: 'Player Scarf',
   scarfDark: 'Player Scarf Dark',
   skirt: 'Player Skirt',
@@ -103,17 +107,18 @@ export function facialFeatures(skin: string): LookPaint {
   };
 }
 
-function skinTone(id: string, label: string, skin: string, skinLight: string): LookOption {
-  return { id, label, paint: { skin, skinLight, ...facialFeatures(skin) } };
+function skinTone(id: string, label: string, skin: string, skinLight: string, blush: string): LookOption {
+  return { id, label, paint: { skin, skinLight, blush, ...facialFeatures(skin) } };
 }
 
+// Each tone with its highlight and the warmer cheek color that reads as a blush on it.
 const SKIN_TONES: readonly LookOption[] = [
-  skinTone('very-light', 'Very light skin', '#efc3a2', '#f6d2b8'),
-  skinTone('light', 'Light skin', '#ddb58b', '#eccaa2'),
-  skinTone('light-medium', 'Light medium skin', '#cb9c74', '#ddb48c'),
-  // The authored player.glb skin.
-  skinTone('medium', 'Medium skin', '#b88561', '#ce9e76'),
-  skinTone('medium-brown', 'Medium brown skin', '#9c6644', '#b47d58'),
+  skinTone('very-light', 'Very light skin', '#efc3a2', '#f6d2b8', '#f0a094'),
+  skinTone('light', 'Light skin', '#ddb58b', '#eccaa2', '#e69682'),
+  skinTone('light-medium', 'Light medium skin', '#cb9c74', '#ddb48c', '#da8470'),
+  // The skin both player models are authored in.
+  skinTone('medium', 'Medium skin', '#b88561', '#ce9e76', '#cc7461'),
+  skinTone('medium-brown', 'Medium brown skin', '#9c6644', '#b47d58', '#b65c4b'),
 ];
 
 interface OutfitColors {
@@ -124,18 +129,26 @@ interface OutfitColors {
   packDark: string;
 }
 
-// The head scarf wears the beanie's colors and the skirt the hood's, so every
-// shape choice belongs to the chosen outfit.
+// The head scarf and shoes wear the beanie's colors, the skirt the top's trim,
+// and the leggings under the skirt the trousers', so every shape choice belongs
+// to the chosen outfit.
 function outfit(id: string, label: string, colors: OutfitColors): LookOption {
   return {
     id,
     label,
-    paint: { ...colors, scarf: colors.pack, scarfDark: colors.packDark, skirt: colors.hoodieDark },
+    paint: {
+      ...colors,
+      scarf: colors.pack,
+      scarfDark: colors.packDark,
+      shoes: colors.pack,
+      skirt: colors.hoodieDark,
+      leggings: colors.trousers,
+    },
   };
 }
 
 const OUTFITS: readonly LookOption[] = [
-  // The authored player.glb hoodie, trousers, and backpack.
+  // The top, trousers, and accent both player models are authored in.
   outfit('ocean', 'Ocean', { hoodie: '#2ca8af', hoodieDark: '#248590', trousers: '#ea7373', pack: '#ffc73c', packDark: '#dd9521' }),
   outfit('sunny', 'Sunny', { hoodie: '#ffcf3f', hoodieDark: '#dba21c', trousers: '#4f86e0', pack: '#ef5b4c', packDark: '#c23e33' }),
   outfit('forest', 'Forest', { hoodie: '#5bbf6a', hoodieDark: '#3c8f4b', trousers: '#3d5a80', pack: '#f29e4c', packDark: '#c97628' }),
@@ -150,20 +163,21 @@ const GENDERS: readonly LookOption[] = [
   { id: 'girl', label: 'Girl', icon: 'girl', nodes: ['player_hair_girl_'] },
 ];
 
+// The skirt set brings its own leggings, so the legs are covered either way.
 const BOTTOMS: readonly LookOption[] = [
-  { id: 'trousers', label: 'Trousers', icon: 'trousers' },
+  { id: 'trousers', label: 'Trousers', icon: 'trousers', nodes: ['player_trousers'] },
   { id: 'skirt', label: 'Skirt', icon: 'skirt', nodes: ['player_skirt'] },
 ];
 
 const HEADWEAR: readonly LookOption[] = [
   { id: 'beanie', label: 'Beanie', icon: 'beanie', nodes: ['player_beanie_'] },
-  // A full head covering: every hair set, the ears, and the hoodie's hood stay underneath it.
+  // A full head covering: every hair set and the ears stay underneath it.
   {
     id: 'scarf',
     label: 'Head scarf',
     icon: 'scarf',
     nodes: ['player_scarf_'],
-    hides: ['player_hair_', 'player_ear_', 'player_hoodie_hood'],
+    hides: ['player_hair_', 'player_ear_'],
   },
 ];
 
@@ -172,7 +186,6 @@ export const LOOK_AXES = [
     id: 'gender',
     label: 'Boy or girl',
     display: 'icon',
-    // Boy is closest to the approved art's short hair, so an unchosen look keeps it.
     defaultOption: 'boy',
     options: GENDERS,
   },
@@ -210,12 +223,30 @@ export const LOOK_AXES = [
 
 export type LookAxisId = (typeof LOOK_AXES)[number]['id'];
 
-/** One chosen option id per axis. */
-export type PlayerLook = Readonly<Record<LookAxisId, string>>;
+export type PlayerStyleId = 'cartoon' | 'realistic';
 
-export const DEFAULT_PLAYER_LOOK: PlayerLook = Object.freeze(
-  Object.fromEntries(LOOK_AXES.map((axis) => [axis.id, axis.defaultOption])) as PlayerLook,
-);
+export interface PlayerStyle {
+  readonly id: PlayerStyleId;
+  readonly label: string;
+  /** One line under the name on the style card. */
+  readonly blurb: string;
+}
+
+export const PLAYER_STYLES: readonly PlayerStyle[] = [
+  { id: 'cartoon', label: 'Cartoon', blurb: 'Round, bright, and bouncy' },
+  { id: 'realistic', label: 'Realistic', blurb: 'Looks like a real kid' },
+];
+
+/** Looks saved before styles existed were made on the cartoon player's predecessor. */
+const DEFAULT_STYLE: PlayerStyleId = 'cartoon';
+
+/** A style and one chosen option id per axis. */
+export type PlayerLook = Readonly<Record<LookAxisId, string>> & { readonly style: PlayerStyleId };
+
+export const DEFAULT_PLAYER_LOOK: PlayerLook = Object.freeze({
+  style: DEFAULT_STYLE,
+  ...(Object.fromEntries(LOOK_AXES.map((axis) => [axis.id, axis.defaultOption])) as Record<LookAxisId, string>),
+});
 
 export function lookOption(axis: LookAxis, id: string): LookOption {
   const option = axis.options.find((item) => item.id === id)
@@ -224,18 +255,20 @@ export function lookOption(axis: LookAxis, id: string): LookOption {
   return option;
 }
 
-/** Keeps known choices and falls back to each axis default for anything else. */
+/** Keeps known choices and falls back to each default for anything else. */
 export function normalizePlayerLook(value: unknown): PlayerLook {
   const source = typeof value === 'object' && value !== null
     ? (value as Record<string, unknown>)
     : {};
-  return Object.fromEntries(
+  const style = PLAYER_STYLES.find((item) => item.id === source.style)?.id ?? DEFAULT_STYLE;
+  const choices = Object.fromEntries(
     LOOK_AXES.map((axis: LookAxis) => {
       const chosen = source[axis.id];
       const known = axis.options.some((option) => option.id === chosen);
       return [axis.id, known ? chosen : axis.defaultOption];
     }),
-  ) as PlayerLook;
+  ) as Record<LookAxisId, string>;
+  return { style, ...choices };
 }
 
 /** Every surface the chosen look paints, keyed by material role. */

@@ -10,10 +10,10 @@ import {
 } from 'three';
 import { AssetLoadSummary, OptionalAssetLoader, createVisualTarget } from './assets';
 import {
-  ASSET_URLS,
   AssetId,
   PLAYER_SPAWN,
   SCENE_ANCHORS,
+  assetUrls,
 } from './config';
 import {
   DialogueCandidate,
@@ -35,11 +35,11 @@ import {
   createBlockFallback,
   createCamoFallback,
   createFriendFallback,
-  createPlayerFallback,
   createRoomFallback,
   fallbackColors,
 } from './procedural';
-import { PlayerLook, applyPlayerLook } from './player-look';
+import { AvatarMotion, PlayerAvatar } from './player-avatar';
+import { PlayerLook } from './player-look';
 import { createPlayroomLights, createRenderer } from './render';
 
 interface SceneEntity extends NearbyEntity {
@@ -63,8 +63,10 @@ export interface DemoSnapshot {
   entities: Record<string, { x: number; z: number; location?: string }>;
   /** Added by the conversational-agent layer; the fields above are unchanged. */
   dialogue: DialogueSnapshot;
-  /** The look chosen in the character menu. */
+  /** The style and look chosen in the menus. */
   look: PlayerLook;
+  /** What the player model is doing: its clip, or `stand-in` before the GLB binds. */
+  playerMotion: AvatarMotion;
 }
 
 declare global {
@@ -128,7 +130,7 @@ export class CamoDemoApp {
   private readonly clock = new Clock();
   private readonly player = new PlayerController(PLAYER_SPAWN);
   private readonly playerRoot = new Group();
-  private readonly playerVisual = createVisualTarget(createPlayerFallback(), 'player');
+  private readonly avatar: PlayerAvatar;
   private readonly carrySocket = new Group();
   private readonly roomVisual = createVisualTarget(createRoomFallback(), 'room');
   private readonly entities: SceneEntity[];
@@ -148,7 +150,7 @@ export class CamoDemoApp {
   constructor(look: PlayerLook) {
     this.renderer = createRenderer(this.canvas);
     this.look = look;
-    applyPlayerLook(this.playerVisual, look);
+    this.avatar = new PlayerAvatar(look);
 
     this.entities = [
       wrapEntity('camo', 'Camo', 'camo', SCENE_ANCHORS.camo, createCamoFallback(), 1.35),
@@ -222,8 +224,8 @@ export class CamoDemoApp {
     this.playerRoot.position.copy(this.player.position);
     this.playerRoot.rotation.y = Math.PI;
     this.carrySocket.name = 'carry-socket';
-    this.carrySocket.position.set(0, 1.02, 0.42);
-    this.playerRoot.add(this.playerVisual, this.carrySocket);
+    this.carrySocket.position.copy(this.avatar.carryPosition);
+    this.playerRoot.add(this.avatar.visual, this.carrySocket);
     this.scene.add(this.playerRoot);
 
     this.desiredCameraPosition.copy(this.player.position).add(CAMERA_OFFSET);
@@ -321,8 +323,7 @@ export class CamoDemoApp {
     const targetYaw = Math.atan2(this.player.facing.x, this.player.facing.z);
     this.playerRoot.rotation.y += shortestAngleDelta(this.playerRoot.rotation.y, targetYaw)
       * (1 - Math.exp(-14 * delta));
-    const moving = this.player.velocity.lengthSq() > 0.04;
-    this.playerVisual.position.y = moving ? Math.abs(Math.sin(this.elapsed * 9)) * 0.035 : 0;
+    this.avatar.update(delta, this.player.velocity.length());
   }
 
   private updateCamera(delta: number): void {
@@ -431,24 +432,27 @@ export class CamoDemoApp {
     this.lastPromptSignature = '';
   }
 
-  private async loadOptionalAssets(): Promise<void> {
-    const targets: Record<AssetId, Group> = {
+  /** The group each optional asset loads into. */
+  private assetTargets(): Record<AssetId, Group> {
+    return {
       room: this.roomVisual,
       camo: this.entityById('camo').visual,
-      player: this.playerVisual,
+      player: this.avatar.visual,
       friendA: this.entityById('friend-a').visual,
       friendB: this.entityById('friend-b').visual,
       ball: this.entityById('ball').visual,
       block: this.entityById('block').visual,
     };
+  }
 
-    const loader = new OptionalAssetLoader();
+  private async loadOptionalAssets(): Promise<void> {
+    const loader = new OptionalAssetLoader(assetUrls(this.look.style));
     await loader.load(
-      targets,
+      this.assetTargets(),
       (summary) => {
         this.renderAssetStatus(summary);
       },
-      { player: (model) => applyPlayerLook(model, this.look) },
+      { player: this.avatar.prepare },
     );
   }
 
@@ -477,19 +481,10 @@ export class CamoDemoApp {
   }
 
   private snapshot(): DemoSnapshot {
-    const targetMap: Record<AssetId, Group> = {
-      room: this.roomVisual,
-      camo: this.entityById('camo').visual,
-      player: this.playerVisual,
-      friendA: this.entityById('friend-a').visual,
-      friendB: this.entityById('friend-b').visual,
-      ball: this.entityById('ball').visual,
-      block: this.entityById('block').visual,
-    };
     const assetModes = Object.fromEntries(
-      (Object.keys(ASSET_URLS) as AssetId[]).map((id) => [
+      Object.entries(this.assetTargets()).map(([id, target]) => [
         id,
-        String(targetMap[id].userData.assetMode ?? 'procedural'),
+        String(target.userData.assetMode ?? 'procedural'),
       ]),
     ) as Record<AssetId, string>;
 
@@ -516,6 +511,7 @@ export class CamoDemoApp {
       entities,
       dialogue: this.dialogue.snapshot(),
       look: this.look,
+      playerMotion: this.avatar.motion,
     };
   }
 }

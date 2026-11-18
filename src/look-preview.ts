@@ -10,9 +10,10 @@ import {
   Vector3,
   WebGLRenderer,
 } from 'three';
-import { OptionalAssetLoader, createVisualTarget, disposeObject } from './assets';
-import { PlayerLook, applyPlayerLook } from './player-look';
-import { createPlayerFallback } from './procedural';
+import { OptionalAssetLoader, disposeObject } from './assets';
+import { assetUrls } from './config';
+import { PlayerAvatar } from './player-avatar';
+import { PlayerLook } from './player-look';
 import { createPlayroomLights, createRenderer } from './render';
 
 // The character idles facing the child with a gentle sway; dragging spins it.
@@ -20,14 +21,32 @@ const SWAY_ANGLE = 0.45; // radians either side of the dragged-to yaw
 const SWAY_SPEED = 0.8; // radians of sway phase per second
 const DRAG_TURN = 0.012; // radians per dragged pixel
 const LOOK_AT = new Vector3(0, 0.6, 0);
-// Meters around the character and platform that must stay in frame.
-const FRAME_HEIGHT = 2.3;
-const FRAME_WIDTH = 2;
+
+/** The platform's radius and the meters around the character that must stay in frame. */
+interface Framing {
+  readonly platform: number;
+  readonly height: number;
+  readonly width: number;
+}
+
+// Room to turn the character on a wide platform.
+const STAGE_FRAMING: Framing = { platform: 0.74, height: 2.3, width: 2 };
+// A portrait: the character fills its card, on a platform just wider than its feet.
+const CARD_FRAMING: Framing = { platform: 0.5, height: 1.86, width: 1.3 };
+
+export interface LookPreviewOptions {
+  /**
+   * Whether the child can drag the character around. A preview that only
+   * illustrates a button leaves pointer input to that button and frames the
+   * character closer.
+   */
+  interactive: boolean;
+}
 
 /**
  * A turntable view of the player, built exactly as the game builds it: the
- * procedural stand-in, swapped for player.glb by the shared asset loader, with
- * the chosen look applied to both.
+ * procedural stand-in, swapped for the style's GLB by the shared asset loader,
+ * dressed in the chosen look and playing its idle clip.
  */
 export class LookPreview {
   private readonly canvas = document.createElement('canvas');
@@ -35,53 +54,58 @@ export class LookPreview {
   private readonly scene = new Scene();
   private readonly camera = new PerspectiveCamera(30, 1, 0.1, 40);
   private readonly turntable = new Group();
-  private readonly visual = createVisualTarget(createPlayerFallback(), 'player');
+  private readonly avatar: PlayerAvatar;
   private readonly clock = new Clock();
   private readonly resizeObserver = new ResizeObserver(() => this.resize());
-  private readonly sways = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  private look: PlayerLook;
+  private readonly moves = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  private readonly framing: Framing;
   private yaw = 0;
   private swayPhase = 0;
   private drag?: { pointerId: number; x: number };
   private frame = 0;
   private disposed = false;
 
-  constructor(container: HTMLElement, look: PlayerLook) {
-    this.look = look;
+  constructor(container: HTMLElement, look: PlayerLook, options: LookPreviewOptions) {
+    this.avatar = new PlayerAvatar(look);
+    this.framing = options.interactive ? STAGE_FRAMING : CARD_FRAMING;
     this.canvas.className = 'look-preview';
-    this.canvas.setAttribute('role', 'img');
-    this.canvas.setAttribute('aria-label', 'Your character. Drag to turn them around.');
+    if (options.interactive) {
+      this.canvas.setAttribute('role', 'img');
+      this.canvas.setAttribute('aria-label', 'Your character. Drag to turn them around.');
+    } else {
+      this.canvas.classList.add('look-preview--static');
+      this.canvas.setAttribute('aria-hidden', 'true');
+    }
     container.append(this.canvas);
     this.renderer = createRenderer(this.canvas, { alpha: true });
 
     this.scene.add(...createPlayroomLights(1.4, 1.4));
     const platform = new Mesh(
-      new CylinderGeometry(0.74, 0.78, 0.06, 56),
+      new CylinderGeometry(this.framing.platform, this.framing.platform + 0.04, 0.06, 56),
       new MeshStandardMaterial({ color: 0x8fcfae, roughness: 0.92, metalness: 0.02 }),
     );
     platform.position.y = -0.03;
     platform.receiveShadow = true;
     this.scene.add(platform, this.turntable);
-    this.turntable.add(this.visual);
-    applyPlayerLook(this.visual, look);
+    this.turntable.add(this.avatar.visual);
 
-    void new OptionalAssetLoader()
-      .load({ player: this.visual }, () => undefined, {
-        player: (model) => applyPlayerLook(model, this.look),
-      })
+    void new OptionalAssetLoader(assetUrls(look.style))
+      .load({ player: this.avatar.visual }, () => undefined, { player: this.avatar.prepare })
       .then(() => {
         if (this.disposed) {
-          disposeObject(this.visual);
+          disposeObject(this.avatar.visual);
           return;
         }
-        this.canvas.dataset.assetMode = String(this.visual.userData.assetMode);
+        this.canvas.dataset.assetMode = String(this.avatar.visual.userData.assetMode);
         this.canvas.dataset.ready = 'true';
       });
 
-    this.canvas.addEventListener('pointerdown', this.onPointerDown);
-    this.canvas.addEventListener('pointermove', this.onPointerMove);
-    this.canvas.addEventListener('pointerup', this.onPointerUp);
-    this.canvas.addEventListener('pointercancel', this.onPointerUp);
+    if (options.interactive) {
+      this.canvas.addEventListener('pointerdown', this.onPointerDown);
+      this.canvas.addEventListener('pointermove', this.onPointerMove);
+      this.canvas.addEventListener('pointerup', this.onPointerUp);
+      this.canvas.addEventListener('pointercancel', this.onPointerUp);
+    }
     this.resizeObserver.observe(this.canvas);
     this.resize();
     this.clock.start();
@@ -89,8 +113,7 @@ export class LookPreview {
   }
 
   setLook(look: PlayerLook): void {
-    this.look = look;
-    applyPlayerLook(this.visual, look);
+    this.avatar.setLook(look);
   }
 
   dispose(): void {
@@ -99,8 +122,8 @@ export class LookPreview {
     this.resizeObserver.disconnect();
     disposeObject(this.scene);
     this.renderer.dispose();
-    // Free the GPU context now rather than at garbage collection: the playroom
-    // creates its own right after the menu closes.
+    // Free the GPU context now rather than at garbage collection: the next
+    // screen creates its own right after this one closes.
     this.renderer.forceContextLoss();
     this.canvas.remove();
   }
@@ -114,8 +137,8 @@ export class LookPreview {
 
     const tanHalfFov = Math.tan(MathUtils.degToRad(this.camera.fov / 2));
     const distance = Math.max(
-      FRAME_HEIGHT / 2 / tanHalfFov,
-      FRAME_WIDTH / 2 / (tanHalfFov * this.camera.aspect),
+      this.framing.height / 2 / tanHalfFov,
+      this.framing.width / 2 / (tanHalfFov * this.camera.aspect),
     );
     this.camera.position.set(0, LOOK_AT.y + distance * 0.12, distance);
     this.camera.lookAt(LOOK_AT);
@@ -124,7 +147,10 @@ export class LookPreview {
 
   private readonly render = (): void => {
     const delta = Math.min(this.clock.getDelta(), 0.1);
-    if (this.sways && !this.drag) this.swayPhase += delta * SWAY_SPEED;
+    if (this.moves) {
+      if (!this.drag) this.swayPhase += delta * SWAY_SPEED;
+      this.avatar.update(delta, 0);
+    }
     this.turntable.rotation.y = this.yaw + Math.sin(this.swayPhase) * SWAY_ANGLE;
     this.renderer.render(this.scene, this.camera);
     this.frame = requestAnimationFrame(this.render);

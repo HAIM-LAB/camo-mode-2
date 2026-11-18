@@ -981,7 +981,7 @@ body[data-dialogue='open'] .proximity {
   pointer-events: none;
 }
 
-/* --- Menus: start screen and character customization -------------------- */
+/* --- Menus: start screen, style choice, and character customization ----- */
 
 .menu {
   position: fixed;
@@ -1000,6 +1000,7 @@ body[data-dialogue='open'] .proximity {
 /* The start menu also shows before any script runs, so it is the first paint. */
 body:not([data-screen]) .start-menu,
 body[data-screen='start'] .start-menu,
+body[data-screen='style'] .style-menu,
 body[data-screen='customize'] .customize {
   display: grid;
 }
@@ -1007,6 +1008,7 @@ body[data-screen='customize'] .customize {
 /* While a menu is up, the playroom behind it is neither seen nor announced. */
 body:not([data-screen]) #app > :not(.menu),
 body[data-screen='start'] #app > :not(.menu),
+body[data-screen='style'] #app > :not(.menu),
 body[data-screen='customize'] #app > :not(.menu) {
   visibility: hidden;
 }
@@ -1133,6 +1135,118 @@ body[data-screen='customize'] #app > :not(.menu) {
   font-weight: 650;
 }
 
+/* A screen's Back button and its title. */
+.menu-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.menu-head h2 {
+  margin: 0;
+  text-wrap: balance;
+  font-size: clamp(26px, 2.5vw, 34px);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.style-menu {
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 16px;
+  padding: 24px;
+}
+
+.style-menu__cards {
+  display: grid;
+  align-self: center;
+  justify-self: center;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 28px;
+  width: min(1120px, 100%);
+  height: min(680px, 100%);
+}
+
+/* One big button per style: its character, its name, and a line about it. */
+.style-card {
+  position: relative;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto auto;
+  justify-items: center;
+  gap: 6px;
+  min-height: 0;
+  padding: 16px 20px 28px;
+  border: 4px solid rgba(255, 255, 255, 0.72);
+  border-radius: 40px;
+  color: var(--ink);
+  background: var(--paper);
+  box-shadow: var(--shadow);
+  cursor: pointer;
+  font: inherit;
+  text-align: center;
+  transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.style-card:hover {
+  border-color: rgba(32, 115, 88, 0.45);
+  transform: translateY(-4px);
+}
+
+.style-card:active {
+  transform: translateY(1px);
+}
+
+.style-card:focus-visible {
+  outline: 4px solid rgba(32, 115, 88, 0.45);
+  outline-offset: 4px;
+}
+
+/* The style picked last time keeps its ring and check, as a chosen look option does. */
+.style-card--current {
+  border-color: var(--mint-dark);
+}
+
+.style-card--current::after {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  color: #fff;
+  background: var(--mint-dark);
+  box-shadow: 0 3px 8px rgba(31, 115, 87, 0.3);
+  content: '✓';
+  /* Decorative: the button already announces that it is the current style. */
+  content: '✓' / '';
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.style-card__stage {
+  position: relative;
+  width: 100%;
+  min-height: 0;
+  height: 100%;
+}
+
+.style-card__name {
+  font-size: clamp(30px, 3.6vw, 44px);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.style-card__blurb {
+  text-wrap: balance;
+  color: var(--ink-soft);
+  font-size: clamp(17px, 1.7vw, 21px);
+  font-weight: 650;
+}
+
 .customize {
   grid-template-areas:
     'head panel'
@@ -1151,7 +1265,8 @@ body[data-screen='customize'] #app > :not(.menu) {
 }
 
 /* A soft spotlight grounds the character on the transparent preview canvas. */
-.customize__stage::before {
+.customize__stage::before,
+.style-card__stage::before {
   position: absolute;
   inset: 8% 12%;
   border-radius: 50%;
@@ -1177,6 +1292,12 @@ body[data-screen='customize'] #app > :not(.menu) {
 
 .look-preview:active {
   cursor: grabbing;
+}
+
+/* A preview that illustrates a button: the button takes the pointer. */
+.look-preview--static {
+  cursor: inherit;
+  pointer-events: none;
 }
 
 .customize__hint {
@@ -1214,19 +1335,7 @@ body[data-screen='customize'] #app > :not(.menu) {
 }
 
 .customize__head {
-  display: flex;
-  align-items: center;
-  gap: 16px;
   grid-area: head;
-}
-
-.customize__head h2 {
-  margin: 0;
-  text-wrap: balance;
-  font-size: clamp(26px, 2.5vw, 34px);
-  font-weight: 800;
-  line-height: 1.1;
-  letter-spacing: -0.02em;
 }
 
 .customize__axes {
@@ -1429,6 +1538,32 @@ body[data-screen='customize'] #app > :not(.menu) {
 }
 
 @media (max-width: 760px) {
+  .style-menu {
+    gap: 12px;
+    padding: 12px 16px 16px;
+  }
+
+  /* Phones stack the two cards; each still gets half the screen for its character. */
+  .style-menu__cards {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    height: 100%;
+  }
+
+  .style-card {
+    padding: 10px 16px 16px;
+    border-radius: 30px;
+  }
+
+  .style-card--current::after {
+    top: 12px;
+    right: 12px;
+    width: 34px;
+    height: 34px;
+    font-size: 17px;
+  }
+
   .customize {
     grid-template-areas:
       'head'

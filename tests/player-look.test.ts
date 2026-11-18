@@ -1,13 +1,14 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { Color, Group, Mesh, MeshStandardMaterial, Object3D } from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import {
   DEFAULT_PLAYER_LOOK,
   LOOK_AXES,
   LookAxis,
   PLAYER_MATERIALS,
+  PLAYER_STYLES,
   PlayerLook,
+  PlayerMaterialRole,
+  PlayerStyleId,
   applyPlayerLook,
   contrastRatio,
   loadPlayerLook,
@@ -17,29 +18,19 @@ import {
 } from '../src/player-look';
 import { shouldSkipMenu } from '../src/menus';
 import { createPlayerFallback } from '../src/procedural';
+import { loadPlayerModel, materialsByName, meshNames, shownParts } from './helpers/player-model';
 
-const PLAYER_GLB = new URL('../public/assets/cast/player.glb', import.meta.url);
 const AXES = LOOK_AXES as readonly LookAxis[];
+const STYLES = PLAYER_STYLES.map((style) => style.id);
 
-async function loadPlayerModel(): Promise<Object3D> {
-  const bytes = readFileSync(PLAYER_GLB);
-  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-  const gltf = await new GLTFLoader().parseAsync(buffer, '');
-  return gltf.scene;
-}
+/** Name prefixes of parts that are on screen in every look, per style. */
+const ALWAYS_SHOWN: Readonly<Record<PlayerStyleId, readonly string[]>> = {
+  cartoon: ['player_head', 'player_tunic', 'player_shoe_L', 'player_shoe_R'],
+  realistic: ['player_body', 'player_top', 'player_shoes'],
+};
 
 function look(choices: Partial<PlayerLook>): PlayerLook {
   return { ...DEFAULT_PLAYER_LOOK, ...choices };
-}
-
-function materialsByName(root: Object3D): Map<string, MeshStandardMaterial> {
-  const found = new Map<string, MeshStandardMaterial>();
-  root.traverse((child) => {
-    if (child instanceof Mesh && child.material instanceof MeshStandardMaterial) {
-      found.set(child.material.name, child.material);
-    }
-  });
-  return found;
 }
 
 function meshMaterial(root: Object3D, name: string): MeshStandardMaterial {
@@ -52,20 +43,14 @@ function meshColor(root: Object3D, name: string): string {
   return `#${meshMaterial(root, name).color.getHexString()}`;
 }
 
-/** Names of the meshes that would render, honoring hidden ancestors. */
-function shownParts(root: Object3D, prefix: string): string[] {
-  const shown: string[] = [];
-  root.traverseVisible((child) => {
-    if (child instanceof Mesh && child.name.startsWith(prefix)) shown.push(child.name);
-  });
-  return shown.sort();
+function materialColor(root: Object3D, role: PlayerMaterialRole): string {
+  const material = materialsByName(root).get(PLAYER_MATERIALS[role]);
+  if (!material) throw new Error(`No material for ${role}`);
+  return `#${material.color.getHexString()}`;
 }
 
-function partPrefixes(kind: 'nodes' | 'hides' | 'all' = 'all'): string[] {
-  return AXES.flatMap((axis) => axis.options.flatMap((option) => [
-    ...(kind === 'hides' ? [] : option.nodes ?? []),
-    ...(kind === 'nodes' ? [] : option.hides ?? []),
-  ]));
+function partPrefixes(kind: 'nodes' | 'hides'): string[] {
+  return AXES.flatMap((axis) => axis.options.flatMap((option) => option[kind] ?? []));
 }
 
 function memoryStorage(initial: Record<string, string> = {}) {
@@ -78,22 +63,34 @@ function memoryStorage(initial: Record<string, string> = {}) {
 }
 
 describe('player look catalog', () => {
-  it('only names materials and parts that the approved player.glb actually has', async () => {
-    const model = await loadPlayerModel();
-    const authored = materialsByName(model);
-    for (const name of Object.values(PLAYER_MATERIALS)) expect(authored.has(name), name).toBe(true);
+  it('names only materials and parts that the player models actually have', async () => {
+    const models = await Promise.all(STYLES.map(loadPlayerModel));
+    const materials = models.map((model) => materialsByName(model));
+    const parts = models.map(meshNames);
 
-    const meshNames: string[] = [];
-    model.traverse((child) => {
-      if (child instanceof Mesh) meshNames.push(child.name);
-    });
-    for (const prefix of partPrefixes()) {
-      expect(meshNames.some((name) => name.startsWith(prefix)), prefix).toBe(true);
+    // Each role is on at least one model, and the ones every outfit shows are on both.
+    for (const [role, name] of Object.entries(PLAYER_MATERIALS)) {
+      expect(materials.some((authored) => authored.has(name)), role).toBe(true);
+    }
+    for (const role of ['skin', 'hoodie', 'trousers', 'leggings', 'pack', 'packDark', 'shoes', 'skirt', 'scarf'] as const) {
+      for (const [index, authored] of materials.entries()) {
+        expect(authored.has(PLAYER_MATERIALS[role]), `${STYLES[index]} ${role}`).toBe(true);
+      }
+    }
+
+    // Every choice shows a part set on both models; a choice may hide parts only one has.
+    for (const prefix of partPrefixes('nodes')) {
+      for (const [index, names] of parts.entries()) {
+        expect(names.some((name) => name.startsWith(prefix)), `${STYLES[index]} ${prefix}`).toBe(true);
+      }
+    }
+    for (const prefix of partPrefixes('hides')) {
+      expect(parts.some((names) => names.some((name) => name.startsWith(prefix))), prefix).toBe(true);
     }
   });
 
-  it('defaults to the authored player.glb colors, so an unchosen look keeps the approved art', async () => {
-    const model = await loadPlayerModel();
+  it.each(STYLES)('defaults to the %s model\'s authored colors and its Boy, trousers, and beanie parts', async (style) => {
+    const model = await loadPlayerModel(style);
     const authored = new Map(
       [...materialsByName(model)].map(([name, material]) => [
         name,
@@ -101,21 +98,21 @@ describe('player look catalog', () => {
       ]),
     );
 
-    applyPlayerLook(model, DEFAULT_PLAYER_LOOK);
+    applyPlayerLook(model, look({ style }));
 
     for (const [name, material] of materialsByName(model)) {
       const before = authored.get(name) as { color: Color; roughness: number };
       // Hex authoring rounds each sRGB channel to 1/255.
-      expect(material.color.r).toBeCloseTo(before.color.r, 2);
-      expect(material.color.g).toBeCloseTo(before.color.g, 2);
-      expect(material.color.b).toBeCloseTo(before.color.b, 2);
-      expect(material.roughness).toBeCloseTo(before.roughness, 5);
+      expect(material.color.r, name).toBeCloseTo(before.color.r, 2);
+      expect(material.color.g, name).toBeCloseTo(before.color.g, 2);
+      expect(material.color.b, name).toBeCloseTo(before.color.b, 2);
+      expect(material.roughness, name).toBeCloseTo(before.roughness, 5);
     }
-    // The approved beanie, hair, and trousers, plus the boy's fringe.
-    expect(shownParts(model, 'player_beanie_')).toEqual(['player_beanie_band', 'player_beanie_crown']);
-    expect(shownParts(model, 'player_hair_')).toEqual(['player_hair_back', 'player_hair_boy_fringe']);
-    expect(shownParts(model, 'player_leg_')).toEqual(['player_leg_L', 'player_leg_R']);
+    expect(shownParts(model, 'player_hair_boy_').length).toBeGreaterThan(0);
+    expect(shownParts(model, 'player_hair_girl_')).toEqual([]);
+    expect(shownParts(model, 'player_trousers').length).toBeGreaterThan(0);
     expect(shownParts(model, 'player_skirt')).toEqual([]);
+    expect(shownParts(model, 'player_beanie_').length).toBeGreaterThan(0);
     expect(shownParts(model, 'player_scarf_')).toEqual([]);
   });
 
@@ -124,6 +121,15 @@ describe('player look catalog', () => {
       const ids = axis.options.map((option) => option.id);
       expect(new Set(ids).size).toBe(ids.length);
       expect(ids).toContain(axis.defaultOption);
+    }
+  });
+
+  it('offers exactly the cartoon and realistic styles, cartoon first', () => {
+    expect(STYLES).toEqual(['cartoon', 'realistic']);
+    expect(DEFAULT_PLAYER_LOOK.style).toBe('cartoon');
+    for (const style of PLAYER_STYLES) {
+      expect(style.label).not.toBe('');
+      expect(style.blurb).not.toBe('');
     }
   });
 
@@ -146,38 +152,68 @@ describe('player look catalog', () => {
 });
 
 describe('applyPlayerLook', () => {
-  it('repaints the skin and outfit parts of the real model and nothing else', async () => {
-    const model = await loadPlayerModel();
+  it('repaints the skin and outfit parts of the cartoon model and nothing else', async () => {
+    const model = await loadPlayerModel('cartoon');
 
     applyPlayerLook(model, look({ skin: 'medium-brown', outfit: 'sunny' }));
 
     expect(meshColor(model, 'player_head')).toBe('#9c6644');
     expect(meshColor(model, 'player_hand_L')).toBe('#9c6644');
     expect(meshColor(model, 'player_nose')).toBe('#b47d58');
-    expect(meshColor(model, 'player_hoodie')).toBe('#ffcf3f');
-    expect(meshColor(model, 'player_leg_L')).toBe('#4f86e0');
+    expect(meshColor(model, 'player_cheek_L')).toBe('#b65c4b');
+    expect(meshColor(model, 'player_tunic')).toBe('#ffcf3f');
+    expect(meshColor(model, 'player_tunic_collar')).toBe('#dba21c');
+    expect(meshColor(model, 'player_trousers_L')).toBe('#4f86e0');
     expect(meshColor(model, 'player_backpack')).toBe('#ef5b4c');
-    // The scarf wears the beanie's colors and the skirt the hood's.
+    expect(meshColor(model, 'player_beanie_band')).toBe('#c23e33');
+    // The scarf and shoes wear the beanie's colors, the skirt the tunic's trim,
+    // and the leggings the trousers'.
     expect(meshColor(model, 'player_scarf_hood')).toBe('#ef5b4c');
     expect(meshColor(model, 'player_scarf_band')).toBe('#c23e33');
+    expect(meshColor(model, 'player_shoe_L')).toBe('#ef5b4c');
     expect(meshColor(model, 'player_skirt')).toBe('#dba21c');
+    expect(meshColor(model, 'player_skirt_leg_L')).toBe('#4f86e0');
     // Hair, soles, and the rest stay as authored.
     expect(meshColor(model, 'player_hair_back')).toBe('#4d352c');
   });
 
-  it('can be applied again with a different look', async () => {
-    const model = await loadPlayerModel();
-    applyPlayerLook(model, look({ skin: 'very-light', outfit: 'berry', headwear: 'scarf' }));
-    applyPlayerLook(model, look({ skin: 'medium-brown', outfit: 'forest', headwear: 'beanie' }));
+  it('repaints the realistic model through its textures and leaves its hair and socks alone', async () => {
+    const model = await loadPlayerModel('realistic');
+    const untouched = ['Player Hair Boy', 'Player Hair Girl', 'Player Eyes', 'Player Sock', 'Player Sole'];
+    const before = untouched.map((name) => materialsByName(model).get(name)?.color.getHexString());
 
-    expect(meshColor(model, 'player_head')).toBe('#9c6644');
-    expect(meshColor(model, 'player_hoodie')).toBe('#5bbf6a');
+    applyPlayerLook(model, look({ style: 'realistic', skin: 'medium-brown', outfit: 'sunny' }));
+
+    // The skin, top, and trousers carry a detail texture; the color multiplies it.
+    for (const role of ['skin', 'hoodie', 'trousers'] as const) {
+      expect(materialsByName(model).get(PLAYER_MATERIALS[role])?.map, role).not.toBeNull();
+    }
+    expect(materialColor(model, 'skin')).toBe('#9c6644');
+    expect(materialColor(model, 'hoodie')).toBe('#ffcf3f');
+    expect(materialColor(model, 'trousers')).toBe('#4f86e0');
+    expect(materialColor(model, 'leggings')).toBe('#4f86e0');
+    expect(materialColor(model, 'pack')).toBe('#ef5b4c');
+    expect(materialColor(model, 'packDark')).toBe('#c23e33');
+    expect(materialColor(model, 'shoes')).toBe('#ef5b4c');
+    expect(materialColor(model, 'scarf')).toBe('#ef5b4c');
+    expect(materialColor(model, 'skirt')).toBe('#dba21c');
+    expect(untouched.map((name) => materialsByName(model).get(name)?.color.getHexString())).toEqual(before);
+  });
+
+  it.each(STYLES)('can be applied to the %s model again with a different look', async (style) => {
+    const model = await loadPlayerModel(style);
+    applyPlayerLook(model, look({ style, skin: 'very-light', outfit: 'berry', headwear: 'scarf', bottoms: 'skirt' }));
+    applyPlayerLook(model, look({ style, skin: 'medium-brown', outfit: 'forest' }));
+
+    expect(materialColor(model, 'skin')).toBe('#9c6644');
+    expect(materialColor(model, 'hoodie')).toBe('#5bbf6a');
     expect(shownParts(model, 'player_scarf_')).toEqual([]);
-    expect(shownParts(model, 'player_hair_')).toEqual(['player_hair_back', 'player_hair_boy_fringe']);
+    expect(shownParts(model, 'player_skirt')).toEqual([]);
+    expect(shownParts(model, 'player_hair_boy_').length).toBeGreaterThan(0);
   });
 
   it('gives medium brown skin glossy dark eyes and restores the authored face after', async () => {
-    const model = await loadPlayerModel();
+    const model = await loadPlayerModel('cartoon');
     const eyes = meshMaterial(model, 'player_eye_L');
     const authored = { color: eyes.color.getHexString(), roughness: eyes.roughness };
 
@@ -190,30 +226,33 @@ describe('applyPlayerLook', () => {
     expect(eyes.color.getHexString()).toBe(authored.color);
   });
 
-  it('shows exactly one hair, bottoms, and headwear set for every combination', async () => {
-    const model = await loadPlayerModel();
+  it.each(STYLES)('shows exactly one hair, bottoms, and headwear set for every %s combination', async (style) => {
+    const model = await loadPlayerModel(style);
+    const hasEars = shownParts(model, 'player_ear_').length > 0;
     for (const gender of ['boy', 'girl']) {
       for (const bottoms of ['trousers', 'skirt']) {
         for (const headwear of ['beanie', 'scarf']) {
           const combination = `${gender} ${bottoms} ${headwear}`;
-          applyPlayerLook(model, look({ gender, bottoms, headwear }));
+          applyPlayerLook(model, look({ style, gender, bottoms, headwear }));
 
-          // The scarf is a full head covering: no hair shows under it.
+          // The scarf is a full head covering: no hair or ear shows under it.
           const hair = shownParts(model, 'player_hair_');
           if (headwear === 'scarf') {
             expect(hair, combination).toEqual([]);
+            expect(shownParts(model, 'player_ear_'), combination).toEqual([]);
           } else {
-            expect(hair, combination).toContain('player_hair_back');
             expect(hair.some((name) => name.startsWith(`player_hair_${gender}_`)), combination).toBe(true);
             const other = gender === 'boy' ? 'girl' : 'boy';
             expect(hair.some((name) => name.startsWith(`player_hair_${other}_`)), combination).toBe(false);
+            expect(shownParts(model, 'player_ear_').length > 0, combination).toBe(hasEars);
           }
           expect(shownParts(model, 'player_beanie_').length > 0, combination).toBe(headwear === 'beanie');
           expect(shownParts(model, 'player_scarf_').length > 0, combination).toBe(headwear === 'scarf');
-          expect(shownParts(model, 'player_skirt').length > 0, combination).toBe(bottoms === 'skirt');
-          // One shared body: legs, head, and hoodie are there in every combination.
-          for (const part of ['player_leg_L', 'player_leg_R', 'player_head', 'player_hoodie']) {
-            expect(shownParts(model, part), `${combination} ${part}`).toContain(part);
+          // The legs are covered either way: by trousers, or by the skirt and its leggings.
+          expect(shownParts(model, 'player_trousers').length > 0, combination).toBe(bottoms === 'trousers');
+          expect(shownParts(model, 'player_skirt').length >= 2, combination).toBe(bottoms === 'skirt');
+          for (const part of ALWAYS_SHOWN[style]) {
+            expect(shownParts(model, part).length, `${combination} ${part}`).toBeGreaterThan(0);
           }
         }
       }
@@ -236,17 +275,26 @@ describe('applyPlayerLook', () => {
     expect(shownParts(fallback, 'player_beanie_')).toEqual([]);
     expect(shownParts(fallback, 'player_hair_')).toEqual([]);
     expect(shownParts(fallback, 'player_skirt')).toEqual(['player_skirt_fallback']);
+    expect(shownParts(fallback, 'player_trousers')).toEqual([]);
     expect(meshColor(fallback, 'player_scarf_fallback')).toBe('#9ad0f5');
 
-    applyPlayerLook(fallback, look({ gender: 'girl', headwear: 'beanie' }));
+    applyPlayerLook(fallback, look({ style: 'realistic', gender: 'girl', headwear: 'beanie' }));
     expect(shownParts(fallback, 'player_hair_')).toEqual(['player_hair_girl_fallback_L', 'player_hair_girl_fallback_R']);
+    expect(shownParts(fallback, 'player_trousers')).toEqual(['player_trousers_fallback']);
   });
 });
 
 describe('saved look', () => {
-  it('round-trips through storage', () => {
+  it('round-trips through storage, style included', () => {
     const storage = memoryStorage();
-    const chosen = look({ gender: 'girl', skin: 'light', outfit: 'bubblegum', bottoms: 'skirt', headwear: 'scarf' });
+    const chosen = look({
+      style: 'realistic',
+      gender: 'girl',
+      skin: 'light',
+      outfit: 'bubblegum',
+      bottoms: 'skirt',
+      headwear: 'scarf',
+    });
     savePlayerLook(chosen, storage);
     expect(loadPlayerLook(storage)).toEqual(chosen);
   });
@@ -255,7 +303,14 @@ describe('saved look', () => {
     expect(normalizePlayerLook({ skin: 'light-medium', outfit: 'retired-outfit' })).toEqual(
       look({ skin: 'light-medium' }),
     );
+    expect(normalizePlayerLook({ style: 'clay', skin: 'light' })).toEqual(look({ skin: 'light' }));
     expect(normalizePlayerLook('light-medium')).toEqual(DEFAULT_PLAYER_LOOK);
+  });
+
+  it('loads a look saved before styles existed as the cartoon player with every choice kept', () => {
+    const saved = { gender: 'girl', skin: 'light', outfit: 'berry', bottoms: 'skirt', headwear: 'scarf' };
+    const older = memoryStorage({ 'camo-mode-2.player-look': JSON.stringify(saved) });
+    expect(loadPlayerLook(older)).toEqual({ style: 'cartoon', ...saved });
   });
 
   it('still loads a look saved before the shape choices and skin trim existed', () => {
