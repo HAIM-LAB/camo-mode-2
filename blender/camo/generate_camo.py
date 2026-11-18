@@ -255,9 +255,11 @@ def skin_over(name: str, points: list[tuple[Vector, float]], smoothing: int = 2)
     for index, (vertex, (_, radius)) in enumerate(zip(mesh.skin_vertices[0].data, points)):
         vertex.radius = (radius, radius)
         vertex.use_root = index == 0
-    smooth = obj.modifiers.new("Smooth", "SUBSURF")
-    smooth.levels = smoothing
-    for modifier in (skin, smooth):
+    modifiers = [skin]
+    if smoothing:
+        modifiers.append(obj.modifiers.new("Smooth", "SUBSURF"))
+        modifiers[-1].levels = smoothing
+    for modifier in modifiers:
         bpy.ops.object.modifier_apply(modifier=modifier.name)
     return obj
 
@@ -549,6 +551,8 @@ def build_realistic() -> tuple[bpy.types.Object, list[bpy.types.Object]]:
     for side, part in zip(turrets, turret_parts):
         weigh(part, on(f"eye_{side}"))
     skin = rp.join(skin_parts + [casque] + crest_parts + pad_parts + toe_parts + turret_parts, "camo_skin")
+    # Sculpted smoother than the game camera ever sees: thinned, it keeps its shape, paint, and weights.
+    rp.simplify(skin, 0.62)
     box_wrap(skin)
     shade, bumps = scale_textures()
     rp.assign(skin, painted_material("Camo Skin", 0.62, shade, bumps))
@@ -584,7 +588,7 @@ def build_realistic() -> tuple[bpy.types.Object, list[bpy.types.Object]]:
         for y, lift in ((-0.575, -0.2), (-0.53, -0.2), (-0.48, -0.17), (-0.43, -0.08), (-0.395, 0.08)):
             outward = Vector((sign * math.cos(math.asin(lift)), 0.0, lift))
             points.append((on_skin(y, outward) + outward * 0.001, 0.0038))
-        mouth_parts.append(skin_over(f"camo_mouth_{'r' if sign < 0 else 'l'}", points, smoothing=1))
+        mouth_parts.append(skin_over(f"camo_mouth_{'r' if sign < 0 else 'l'}", points, smoothing=0))
     mouth = rp.join(mouth_parts, "camo_mouth")
     paint(mouth, lambda co, normal: linear(MOUTH))
     weigh(mouth, on("head"))

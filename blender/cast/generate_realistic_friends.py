@@ -409,11 +409,10 @@ def build_friend_a(mpfb: dict) -> dict[str, bpy.types.Object]:
     puffs, ties = hair_puffs(afro, scalp, head, rig, prefix)
     bpy.data.objects.remove(afro)
 
-    # Her forearms are bare, so the arms are thinned less than the player's hidden ones.
-    body = rp.lighten_body(body, head, knee, 0.5)
+    body = rp.lighten_body(body, head, knee)
     for obj in (shoes, leggings):
         rp.simplify(obj, 0.5)
-    rp.simplify(puffs, 0.6)
+    rp.simplify(puffs, 0.45)
 
     parts = {
         f"{prefix}_body": body,
