@@ -40,4 +40,6 @@ All parts export together, so each model's bounds include its tallest headwear. 
 
 Clips: each model carries `idle` and `walk`, looping in place. `src/player-avatar.ts` finds them by those names, cross-fades between them, and plays the walk faster or slower with the player's speed. A model without both clips still works: it hops like the procedural stand-in.
 
-Each style has its own movement speed, also in `src/player-avatar.ts`. The cartoon player toddles across the room at 2.75 m/s. The realistic player moves at 1.45 m/s, a young child's easy walk: its walk clip plants each foot for exactly that speed, so the feet do not slide. Change that speed and `WALK_SPEED` in the generator together.
+Each style has its own movement speed, also in `src/player-avatar.ts`. The cartoon player toddles across the room at 2.75 m/s. The realistic player moves at 1.81 m/s, an easy walk at its playroom size: its walk clip plants each foot for exactly that speed, so the feet do not slide. The model records the speed as its rig's `walk_speed`, and `tests/player-avatar.test.ts` fails if the game's speed for this player differs from it.
+
+Both players stand about as tall as the friends: the cartoon player 1.30 m and the realistic player 1.38 m. The realistic child is modeled at a real child's height and enlarged as a whole in its generator, so no scaling happens in the application.

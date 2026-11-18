@@ -1043,6 +1043,8 @@ def export_asset(key: str) -> Path:
         export_animations=True,
         export_animation_mode="NLA_TRACKS",
         export_optimize_animation_size=True,
+        # Clips start at time zero, so a loop is exactly as long as its stride.
+        export_anim_slide_to_zero=True,
     )
     return destination
 

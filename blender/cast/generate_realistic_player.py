@@ -1185,8 +1185,11 @@ def finish_clip(rig: bpy.types.Object, action: bpy.types.Action) -> None:
 # ground rather than from joint angles. While a foot is down it stays exactly
 # where it landed as the body travels over it, so at WALK_SPEED nothing slides.
 WALK_FRAMES = 16  # One stride (two steps) in 0.53 s at 30 fps: a small child's quick, short steps.
-# Meters per second the walk covers. The realistic player moves at this speed
-# (its moveSpeed in src/player-avatar.ts), so the two must change together.
+# Meters per second the walk covers at the child's natural height. The model is
+# enlarged for the playroom after it is animated (see PLAYROOM_HEIGHT), and its
+# walk speed grows with it; the exported file records the result as the rig's
+# walk_speed, which the realistic player's moveSpeed in src/player-avatar.ts
+# must equal (tests/player-avatar.test.ts checks that it does).
 WALK_SPEED = 1.45
 STANCE = 0.6  # Share of the stride each foot spends on the ground.
 HEEL_ROCKER, TOE_ROCKER = 0.12, 0.55  # Stance shares where the foot lies flat between them.
@@ -1518,7 +1521,37 @@ def ground(rig: bpy.types.Object, meshes: list[bpy.types.Object]) -> None:
         bpy.ops.object.transform_apply(location=True, rotation=False, scale=False)
 
 
-def export_player(rig: bpy.types.Object, meshes: list[bpy.types.Object]) -> None:
+# How tall the child stands in the playroom, in meters: the height of the rest
+# of the cast. A real child of this build is shorter, so the finished model is
+# enlarged as a whole, which keeps its young proportions.
+PLAYROOM_HEIGHT = 1.38
+
+
+def enlarge(rig: bpy.types.Object, meshes: list[bpy.types.Object], factor: float) -> None:
+    """Scales the finished, animated model about the floor under its feet."""
+    scale = Matrix.Scale(factor, 4)
+    for obj in meshes:
+        obj.data.transform(scale)
+        obj.data.update()
+    rig.data.transform(scale)
+    # A clip's turns hold at any size; the distances it moves the pelvis grow with the body.
+    for action in bpy.data.actions:
+        for curve in action.fcurves:
+            if curve.data_path.endswith("location"):
+                for point in curve.keyframe_points:
+                    point.co.y *= factor
+                    point.handle_left.y *= factor
+                    point.handle_right.y *= factor
+
+
+def export_player(rig: bpy.types.Object, meshes: list[bpy.types.Object], walk_speed: float) -> None:
+    # The file carries one fact of its own: the ground speed its walk clip is
+    # built for, which the game must move this player at. MPFB's own
+    # bookkeeping properties are dropped.
+    for obj in [rig, *meshes]:
+        for name in list(obj.keys()):
+            del obj[name]
+    rig["walk_speed"] = round(walk_speed, 3)
     bpy.context.scene.render.fps = FPS
     bpy.ops.object.select_all(action="DESELECT")
     rig.select_set(True)
@@ -1537,13 +1570,15 @@ def export_player(rig: bpy.types.Object, meshes: list[bpy.types.Object]) -> None
         export_image_format="AUTO",
         export_cameras=False,
         export_lights=False,
-        export_extras=False,
+        export_extras=True,
         export_skins=True,
         export_morph=False,
         export_animations=True,
         export_animation_mode="NLA_TRACKS",
         export_optimize_animation_size=True,
         export_anim_single_armature=True,
+        # Clips start at time zero, so a loop is exactly as long as its stride.
+        export_anim_slide_to_zero=True,
     )
 
 
@@ -1689,7 +1724,7 @@ def validate_export() -> None:
     triangles = sum(len(polygon.vertices) - 2 for obj in meshes for polygon in obj.data.polygons)
     if abs(low) > 0.006:
         raise RuntimeError(f"{OUTPUT_PATH.name}: ground is z={low:.5f} m after import, expected 0")
-    if not 1.05 <= tall <= 1.2:
+    if abs(tall - PLAYROOM_HEIGHT) > 0.01:
         raise RuntimeError(f"{OUTPUT_PATH.name}: unexpected height {tall:.4f} m")
     if abs(center_x) > 0.01:
         raise RuntimeError(f"{OUTPUT_PATH.name}: not centered between the feet (x={center_x:.4f})")
@@ -1726,7 +1761,12 @@ def main() -> None:
         print(f"{'PASS' if gap >= MIN_CLEARANCE else 'FAIL'} arms {label}: {gap * 1000:.0f} mm at the closest, between {where}")
     if min(gap for gap, _ in gaps.values()) < MIN_CLEARANCE:
         raise RuntimeError(f"An arm comes within {MIN_CLEARANCE * 1000:.0f} mm of the body")
-    export_player(rig, meshes)
+    # Everything above is measured on the child at its natural height. Only now
+    # is it enlarged to stand as tall as the rest of the cast.
+    factor = PLAYROOM_HEIGHT / max(world_z_range(obj)[1] for obj in meshes)
+    enlarge(rig, meshes, factor)
+    print(f"Enlarged {factor:.3f} times to {PLAYROOM_HEIGHT} m; its walk now covers {WALK_SPEED * factor:.2f} m/s")
+    export_player(rig, meshes, WALK_SPEED * factor)
     validate_export()
 
     print(f"Model:   {OUTPUT_PATH.relative_to(REPO_ROOT)}")

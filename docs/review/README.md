@@ -81,7 +81,9 @@ close-ups are crops of the same page at twice the pixel density.
 - `11`–`13`: the realistic player in customization: the default look, Girl ·
   skirt · beanie, and Girl · skirt · head scarf.
 - `15b`–`17`: the realistic player in the playroom from behind and from the
-  front, and mid-stride in its easy walk.
+  front, and mid-stride in its easy walk. It stands as tall as the rest of the
+  cast.
+- `32`: the realistic player carrying the ball.
 - `18`, `19`: `?skipMenu=1` enters the room in the saved style, and a Camo
   conversation on the mock brain.
 - `20`: a look saved before styles existed loads as the cartoon player with

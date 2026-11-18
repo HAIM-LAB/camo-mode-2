@@ -25,9 +25,9 @@ const STYLE_MOTION: Readonly<Record<PlayerStyleId, StyleMotion>> = Object.freeze
   // A toy-like toddle: its feet are allowed to skate a little at this pace.
   cartoon: { moveSpeed: 2.75, walkSpeed: 2.4, carry: [0.34, 0.46] },
   // A real child's easy walk. Its clip plants each foot for exactly this speed
-  // (WALK_SPEED in blender/cast/generate_realistic_player.py), so it moves at
-  // that speed and the feet never slide.
-  realistic: { moveSpeed: 1.45, walkSpeed: 1.45, carry: [0.6, 0.3] },
+  // (the model records it as its rig's walk_speed), so it moves at that speed
+  // and the feet never slide.
+  realistic: { moveSpeed: 1.81, walkSpeed: 1.81, carry: [0.75, 0.37] },
 });
 
 // Below this speed (m/s) the player counts as standing.

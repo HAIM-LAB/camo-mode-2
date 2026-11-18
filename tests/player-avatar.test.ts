@@ -43,6 +43,9 @@ describe('player avatar', () => {
     for (const clip of model.animations) {
       expect(clip.duration, clip.name).toBeGreaterThan(0.3);
       expect(clip.tracks.length, clip.name).toBeGreaterThan(0);
+      // A clip that started late would hold its first frame on every loop,
+      // and the walk's stride would no longer match its speed.
+      expect(Math.min(...clip.tracks.map((track) => track.times[0])), clip.name).toBe(0);
       for (const track of clip.tracks) {
         const { nodeName } = PropertyBinding.parseTrackName(track.name);
         expect(model.getObjectByName(nodeName), `${clip.name} ${track.name}`).toBeDefined();
@@ -108,15 +111,22 @@ describe('player avatar', () => {
     const cartoon = new PlayerAvatar(DEFAULT_PLAYER_LOOK);
     const realistic = new PlayerAvatar({ ...DEFAULT_PLAYER_LOOK, style: 'realistic' });
     expect(cartoon.moveSpeed).toBe(2.75);
-    // A young child's easy walk is between one and two meters a second.
+    // An easy walk, well short of the cartoon player's scamper.
     expect(realistic.moveSpeed).toBeGreaterThan(1);
     expect(realistic.moveSpeed).toBeLessThan(2);
   });
 
+  it('moves the realistic child at the speed its walk clip plants its feet for', async () => {
+    const { avatar, model } = await boundAvatar('realistic');
+    // The generator records the clip's ground speed on the rig; at any other
+    // speed the feet would slide.
+    expect(joint(model, 'player_rig').userData.walk_speed).toBeCloseTo(avatar.moveSpeed, 2);
+  });
+
   it.each(STYLES)('reports the %s model\'s height once it is prepared, for framing it', async (style) => {
     const { avatar } = await boundAvatar(style);
-    // The cartoon player with its bobble, or a six-to-seven-year-old.
-    const [low, high] = style === 'cartoon' ? [1.25, 1.36] : [1.05, 1.2];
+    // Both stand about as tall as the rest of the cast.
+    const [low, high] = style === 'cartoon' ? [1.25, 1.36] : [1.33, 1.43];
     expect(avatar.height).toBeGreaterThan(low);
     expect(avatar.height).toBeLessThan(high);
   });

@@ -55,11 +55,11 @@ No `.blend` is kept for this model: the script and the CC0 sources are the sourc
 
 What the script does with the MakeHuman sources:
 
-- Body: a young child of six or seven, just under six heads tall, with a round face, a slight smile, and relaxed eyes. MakeHuman's age control alone gives an older child's build, so head, leg, and shoulder morphs bring it to a young child's proportions. Boy and Girl share it; only the hair differs.
+- Body: a young child of six or seven, just under six heads tall, with a round face, a slight smile, and relaxed eyes. It is built, dressed, animated, and checked at a real child's 1.1 m, then enlarged as a whole to 1.38 m so that it stands as tall in the playroom as the rest of the cast; enlarging keeps its proportions. MakeHuman's age control alone gives an older child's build, so head, leg, and shoulder morphs bring it to a young child's proportions. Boy and Girl share it; only the hair differs.
 - Skin under the clothes is removed from the mesh and blanked in the texture, so no unclothed body ships.
 - Textures become neutral detail maps that the outfit and skin colors multiply. The shirt's print is dropped and the shoes are untextured, so no logo or brand mark survives.
 - The skirt and its leggings are cut from the base mesh's own garment helpers. The beanie and the head scarf's wrap are layers fitted over the head, the scarf's drape is laid from the neck onto the collarbones, and the hair is trimmed to what shows below the beanie. All of them are placed from measurements of the built head, so they follow any change to the body's proportions.
-- The walk is built from where the feet are on the ground and solved back to leg angles, so each planted foot stays put at the speed the game moves this player (`WALK_SPEED`, which must match `moveSpeed` in `src/player-avatar.ts`).
+- The walk is built from where the feet are on the ground and solved back to leg angles, so each planted foot stays put at the speed the game moves this player. The exported file records that speed as the rig's `walk_speed`: `WALK_SPEED` times the enlargement, 1.81 m/s. `moveSpeed` in `src/player-avatar.ts` must equal it, and `tests/player-avatar.test.ts` fails if it does not.
 - MakeHuman's A-pose is turned into a relaxed stand and made the rest pose, so the model stands naturally even where no clip plays. The arms are held a little out, so the hands and forearms hang clear of the top, the hips, and the skirt.
 
 ## Runtime contract
@@ -67,7 +67,7 @@ What the script does with the MakeHuman sources:
 - Binary glTF (`.glb`), meters, Y-up, forward +Z.
 - Character origins are centered between the feet at floor contact; floor is y=0.
 - Prop origins are centered horizontally at ground contact; floor is y=0.
-- The friends are approximately 1.4 m tall, the cartoon player 1.30 m, and the realistic player 1.11 m.
+- The friends are approximately 1.4 m tall, the cartoon player 1.30 m, and the realistic player 1.38 m.
 - Ball diameter is 0.34 m. Block dimensions are approximately 0.30 × 0.24 × 0.295 m including studs.
 - Everything from `generate_cast.py` uses vertex geometry and embedded glTF material values only. The realistic player also embeds its textures.
 - Both players carry `idle` and `walk` clips that loop in place. The cartoon player's clips move pivot nodes; the realistic player's move a skeleton.
