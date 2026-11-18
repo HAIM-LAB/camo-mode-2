@@ -12,8 +12,8 @@ MPFB is only a build tool here. Its source code is GPL-3.0-or-later, and none of
 
 | Asset | What the model takes from it | Comes with | License |
 | --- | --- | --- | --- |
-| MakeHuman base mesh (`base.obj`), including its skirt and tights helper geometry | Head, neck, ears, and hands. The skirt and leggings are cut from the helpers; the beanie and head scarf are layers fitted over the head. | MPFB 2.0.18 | CC0 1.0 |
-| MakeHuman morph targets | A ten-year-old's proportions, a soft smile, rounder cheeks, slightly larger eyes | MPFB 2.0.18 | CC0 1.0 |
+| MakeHuman base mesh (`base.obj`), including its skirt and tights helper geometry | Head, neck, ears, and hands. The skirt and leggings are cut from the helpers; the beanie and the head scarf's wrap are layers fitted over the head. | MPFB 2.0.18 | CC0 1.0 |
+| MakeHuman morph targets | A young child's proportions and round face, a slight smile, relaxed eyes | MPFB 2.0.18 | CC0 1.0 |
 | `game_engine` rig and skin weights | The skeleton | MPFB 2.0.18 | CC0 1.0 |
 | Skin `young_caucasian_female` | Skin detail, turned into a neutral map that the chosen tone multiplies. Every region the clothes cover is blanked. | MakeHuman system assets | CC0 1.0 |
 | Eyes `low-poly` with the `brown` iris texture | Eyes | MakeHuman system assets | CC0 1.0 |

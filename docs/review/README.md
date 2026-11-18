@@ -81,7 +81,7 @@ close-ups are crops of the same page at twice the pixel density.
 - `11`–`13`: the realistic player in customization: the default look, Girl ·
   skirt · beanie, and Girl · skirt · head scarf.
 - `15b`–`17`: the realistic player in the playroom from behind and from the
-  front, and mid-stride.
+  front, and mid-stride in its easy walk.
 - `18`, `19`: `?skipMenu=1` enters the room in the saved style, and a Camo
   conversation on the mock brain.
 - `20`: a look saved before styles existed loads as the cartoon player with
@@ -93,4 +93,5 @@ Both characters were reviewed for age-appropriateness in every combination:
 - everyday clothes that cover the torso, arms, and legs;
 - skirts at or below the knee over leggings;
 - a full head covering that frames the face;
-- on the realistic player, a soft closed-mouth smile rather than a blank face.
+- on the realistic player, a young child's proportions and round face with a
+  slight closed-mouth smile and relaxed eyes.

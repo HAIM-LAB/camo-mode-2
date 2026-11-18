@@ -128,7 +128,7 @@ export class CamoDemoApp {
   private readonly camera = new PerspectiveCamera(48, 1, 0.1, 80);
   private readonly renderer: WebGLRenderer;
   private readonly clock = new Clock();
-  private readonly player = new PlayerController(PLAYER_SPAWN);
+  private readonly player: PlayerController;
   private readonly playerRoot = new Group();
   private readonly avatar: PlayerAvatar;
   private readonly carrySocket = new Group();
@@ -151,6 +151,7 @@ export class CamoDemoApp {
     this.renderer = createRenderer(this.canvas);
     this.look = look;
     this.avatar = new PlayerAvatar(look);
+    this.player = new PlayerController(PLAYER_SPAWN, this.avatar.moveSpeed);
 
     this.entities = [
       wrapEntity('camo', 'Camo', 'camo', SCENE_ANCHORS.camo, createCamoFallback(), 1.35),

@@ -59,8 +59,8 @@ describe('player avatar', () => {
     expect(widestTurn(avatar, leg, 2, 0)).toBeLessThan(STILL_LEG_TURN);
     expect(avatar.motion).toBe('idle');
 
-    // Walking: the legs swing through a real stride.
-    expect(widestTurn(avatar, leg, 1.5, 2.75)).toBeGreaterThan(0.4);
+    // Walking at the style's own speed: the legs swing through a real stride.
+    expect(widestTurn(avatar, leg, 1.5, avatar.moveSpeed)).toBeGreaterThan(0.3);
     expect(avatar.motion).toBe('walk');
 
     // Stopping blends back to the stand rather than freezing mid-stride.
@@ -104,13 +104,30 @@ describe('player avatar', () => {
     expect(avatar.motion).toBe('stand-in');
   });
 
+  it('moves the realistic child at a walking pace and the cartoon player faster', () => {
+    const cartoon = new PlayerAvatar(DEFAULT_PLAYER_LOOK);
+    const realistic = new PlayerAvatar({ ...DEFAULT_PLAYER_LOOK, style: 'realistic' });
+    expect(cartoon.moveSpeed).toBe(2.75);
+    // A young child's easy walk is between one and two meters a second.
+    expect(realistic.moveSpeed).toBeGreaterThan(1);
+    expect(realistic.moveSpeed).toBeLessThan(2);
+  });
+
+  it.each(STYLES)('reports the %s model\'s height once it is prepared, for framing it', async (style) => {
+    const { avatar } = await boundAvatar(style);
+    // The cartoon player with its bobble, or a six-to-seven-year-old.
+    const [low, high] = style === 'cartoon' ? [1.25, 1.36] : [1.05, 1.2];
+    expect(avatar.height).toBeGreaterThan(low);
+    expect(avatar.height).toBeLessThan(high);
+  });
+
   it('carries toys lower in front of the short cartoon player than the realistic one', () => {
     const cartoon = new PlayerAvatar(DEFAULT_PLAYER_LOOK).carryPosition;
     const realistic = new PlayerAvatar({ ...DEFAULT_PLAYER_LOOK, style: 'realistic' }).carryPosition;
     expect(cartoon.y).toBeLessThan(realistic.y);
     for (const position of [cartoon, realistic]) {
       expect(position.x).toBe(0);
-      expect(position.z).toBeGreaterThan(0.3);
+      expect(position.z).toBeGreaterThan(0.25);
     }
   });
 

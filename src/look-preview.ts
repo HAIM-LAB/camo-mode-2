@@ -20,19 +20,23 @@ import { createPlayroomLights, createRenderer } from './render';
 const SWAY_ANGLE = 0.45; // radians either side of the dragged-to yaw
 const SWAY_SPEED = 0.8; // radians of sway phase per second
 const DRAG_TURN = 0.012; // radians per dragged pixel
-const LOOK_AT = new Vector3(0, 0.6, 0);
+// The camera aims a little below the character's middle, leaving room for the platform.
+const AIM_HEIGHT = 0.46;
 
-/** The platform's radius and the meters around the character that must stay in frame. */
+/** How a preview frames its character, whatever the character's height. */
 interface Framing {
+  /** The platform's radius in meters. */
   readonly platform: number;
-  readonly height: number;
+  /** The share of the frame's height the character fills. */
+  readonly fill: number;
+  /** Meters across that must stay in frame. */
   readonly width: number;
 }
 
 // Room to turn the character on a wide platform.
-const STAGE_FRAMING: Framing = { platform: 0.74, height: 2.3, width: 2 };
+const STAGE_FRAMING: Framing = { platform: 0.74, fill: 0.57, width: 2 };
 // A portrait: the character fills its card, on a platform just wider than its feet.
-const CARD_FRAMING: Framing = { platform: 0.5, height: 1.86, width: 1.3 };
+const CARD_FRAMING: Framing = { platform: 0.5, fill: 0.7, width: 1.3 };
 
 export interface LookPreviewOptions {
   /**
@@ -96,6 +100,9 @@ export class LookPreview {
           disposeObject(this.avatar.visual);
           return;
         }
+        // The model knows its own height now; the canvas is still hidden, so
+        // reframing to it is never seen.
+        this.resize();
         this.canvas.dataset.assetMode = String(this.avatar.visual.userData.assetMode);
         this.canvas.dataset.ready = 'true';
       });
@@ -135,13 +142,16 @@ export class LookPreview {
     this.renderer.setSize(width, height, false);
     this.camera.aspect = width / height;
 
+    // Every character fills the same share of its frame, tall or short.
+    const figure = this.avatar.height;
     const tanHalfFov = Math.tan(MathUtils.degToRad(this.camera.fov / 2));
     const distance = Math.max(
-      this.framing.height / 2 / tanHalfFov,
+      figure / this.framing.fill / 2 / tanHalfFov,
       this.framing.width / 2 / (tanHalfFov * this.camera.aspect),
     );
-    this.camera.position.set(0, LOOK_AT.y + distance * 0.12, distance);
-    this.camera.lookAt(LOOK_AT);
+    const aim = new Vector3(0, figure * AIM_HEIGHT, 0);
+    this.camera.position.set(0, aim.y + distance * 0.12, distance);
+    this.camera.lookAt(aim);
     this.camera.updateProjectionMatrix();
   }
 

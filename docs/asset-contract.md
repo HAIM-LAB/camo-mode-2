@@ -39,3 +39,5 @@ Part sets, shown or hidden by node-name prefix (one shared body per model):
 All parts export together, so each model's bounds include its tallest headwear. The default look is Boy, trousers, and beanie in the authored colors.
 
 Clips: each model carries `idle` and `walk`, looping in place. `src/player-avatar.ts` finds them by those names, cross-fades between them, and plays the walk faster or slower with the player's speed. A model without both clips still works: it hops like the procedural stand-in.
+
+Each style has its own movement speed, also in `src/player-avatar.ts`. The cartoon player toddles across the room at 2.75 m/s. The realistic player moves at 1.45 m/s, a young child's easy walk: its walk clip plants each foot for exactly that speed, so the feet do not slide. Change that speed and `WALK_SPEED` in the generator together.

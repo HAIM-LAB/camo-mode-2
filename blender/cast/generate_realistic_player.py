@@ -19,6 +19,7 @@ import importlib
 import math
 import sys
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 import bmesh
@@ -26,6 +27,7 @@ import bpy
 import numpy as np
 from mathutils import Matrix, Vector
 from mathutils.bvhtree import BVHTree
+from mathutils.kdtree import KDTree
 
 
 SCRIPT_PATH = Path(__file__).resolve()
@@ -195,36 +197,54 @@ def strip_modifiers(obj: bpy.types.Object, *, keep: tuple[str, ...] = ("ARMATURE
 # Body
 
 
-# A ten-year-old (MakeHuman age 0.1875) of average build. Boy and Girl share
-# this one body, as on the cartoon player; only the hair differs.
+# A young child, about six or seven: MakeHuman's age scale runs from a
+# one-year-old at 0 to a ten-year-old at 0.1875. Boy and Girl share this one
+# body, as on the cartoon player; only the hair differs.
 CHILD_MACROS = {
     "gender": 0.5,
-    "age": 0.1875,
-    "muscle": 0.5,
-    "weight": 0.5,
-    "proportions": 0.5,
-    "height": 0.5,
+    "age": 0.11,
+    # A little softer than average, as young children are.
+    "muscle": 0.45,
+    "weight": 0.52,
+    "proportions": 0.3,
+    # Taller than MakeHuman's own child of this age, which comes out toddler-sized.
+    "height": 0.62,
     "cupsize": 0.5,
     "firmness": 0.5,
     "race": {"asian": 0.33, "caucasian": 0.34, "african": 0.33},
 }
 
-# Morphs on top of the macros that keep the face friendly rather than blank:
-# a soft closed-mouth smile, rounder cheeks, and slightly larger eyes.
-FACE_TARGETS = {
-    "mouth-corner-puller": 0.55,
-    "l-cheek-volume-incr": 0.35,
-    "r-cheek-volume-incr": 0.35,
-    "l-eye-scale-incr": 0.55,
-    "r-eye-scale-incr": 0.55,
-    "head-round": 0.3,
+# Morphs on top of the macros. Without them the age scale alone gives an older
+# child's build: these bring the figure to just under six heads tall.
+CHILD_TARGETS = {
+    # A young child's proportions: a larger head on a short-legged body with
+    # narrow, sloping shoulders and no taper from chest to waist.
+    "head-scale-vert-incr": 0.4,
+    "head-scale-horiz-incr": 0.4,
+    "head-scale-depth-incr": 0.4,
+    "upperlegs-height-decr": 0.3,
+    "lowerlegs-height-decr": 0.3,
+    "measure-shoulder-dist-decr": 0.5,
+    "torso-vshape-decr": 0.5,
+    # A round, soft face rather than a small adult's.
+    "head-age-decr": 0.5,
+    "head-round": 0.4,
+    "l-cheek-volume-incr": 0.5,
+    "r-cheek-volume-incr": 0.5,
+    # A relaxed, friendly expression: a slight closed-mouth smile and eyes at
+    # rest, a touch larger than life but not held wide.
+    "mouth-corner-puller": 0.45,
+    "l-eye-scale-incr": 0.2,
+    "r-eye-scale-incr": 0.2,
+    "eye-left-closure": 0.12,
+    "eye-right-closure": 0.12,
 }
 
 
 def build_body(mpfb: dict) -> bpy.types.Object:
     human, targets = mpfb["HumanService"], mpfb["TargetService"]
     body = human.create_human(scale=0.1, macro_detail_dict=CHILD_MACROS)
-    for name, weight in FACE_TARGETS.items():
+    for name, weight in CHILD_TARGETS.items():
         path = targets.target_full_path(name)
         if not path:
             raise SystemExit(f"MPFB morph target {name} is missing")
@@ -385,8 +405,8 @@ def tinted_alpha_texture(mpfb: dict, part: tuple[str, str, str], name: str, tint
 def eye_texture(mpfb: dict, size: int = 256) -> Path:
     subdir, fragment, filename = EYE_TEXTURE
     pixels = load_pixels(asset_path(mpfb, subdir, fragment).parent / filename, size)
-    # The pack's eye whites are grey; lifted so the eyes read from the game camera.
-    pixels[..., :3] = np.clip(pixels[..., :3] * 1.3, 0.0, 1.0)
+    # The pack's eye whites are grey; lifted a little so the eyes read from the game camera.
+    pixels[..., :3] = np.clip(pixels[..., :3] * 1.15, 0.0, 1.0)
     pixels[..., 3] = 1.0
     return save_pixels("player-eyes", pixels, alpha=False)
 
@@ -578,155 +598,371 @@ def split_material(obj: bpy.types.Object, second: bpy.types.Material, chosen) ->
             polygon.material_index = 1
 
 
-# Where the beanie's edge and the head scarf's face opening sit on this head,
-# in meters before the model is grounded. The brim runs from above the brows
-# down to the nape, clipping the tops of the ears.
-BRIM_FRONT = (-0.125, 1.25)  # (y, z) on the forehead
-BRIM_BACK = (0.045, 1.185)  # (y, z) on the back of the head
-BRIM_SLOPE = (BRIM_BACK[1] - BRIM_FRONT[1]) / (BRIM_BACK[0] - BRIM_FRONT[0])
-CUFF_HEIGHT = 0.034
-# The scarf frames the face with an oval, seen from the front: brow line to under the chin.
-FACE_CENTER_Z = 1.186
-FACE_HALF_WIDTH = 0.061
-FACE_HALF_HEIGHT = 0.08
-NECK_BASE = 1.0
-# The scarf's capelet ends on a plane across the chest that rises toward the back.
-DRAPE_FRONT = (-0.09, 1.0)  # (y, z)
-DRAPE_SLOPE = 0.3
+@dataclass(frozen=True)
+class Head:
+    """Where things sit on this child's head and neck, in meters before the model is grounded.
 
-
-def above_brim(co: Vector) -> float:
-    """Height of a point above the beanie's brim plane."""
-    return co.z - (BRIM_FRONT[1] + BRIM_SLOPE * (co.y - BRIM_FRONT[0]))
-
-
-def face_oval(co: Vector) -> float:
-    """Below 1 inside the scarf's face opening, above 1 outside it."""
-    if co.y > -0.02:
-        return 2.0
-    return math.hypot(co.x / FACE_HALF_WIDTH, (co.z - FACE_CENTER_Z) / FACE_HALF_HEIGHT)
-
-
-def cut_face_opening(mesh: bmesh.types.BMesh, sides: int = 32) -> None:
-    """Cuts the scarf's face opening out of a head mesh, leaving a clean edge.
-
-    The oval is cut as a many-sided polygon: each side scores the faces around
-    the opening along one tangent of the oval, then what lies inside goes.
+    Measured from the built meshes rather than written down, so the headwear
+    still fits whenever the body's proportions change.
     """
+
+    shoulders: float  # Height that separates the head and neck from the raised hands.
+    crown: float  # Top of the skull.
+    brow: float  # Top of the eyebrows.
+    eye: float  # Middle of the eyes.
+    chin: float  # Just under the chin, where the jaw has turned back toward the neck.
+    forehead: float  # y of the forehead where a hat's cuff sits.
+    back: float  # y of the back of the skull.
+    half_width: float  # Half the skull's width above the ears.
+    ear: Vector  # Middle of the ear on the +x side.
+    ear_front: float  # y of the front edge of the ears.
+    collar: float  # Top edge of the top's collar.
+    neck: Vector  # A point on the neck's axis at its base.
+    shoulder_reach: float  # x of the shoulder joint.
+
+    # The beanie's brim runs from above the brows down to the nape, clipping the tops of the ears.
+    @property
+    def brim_front(self) -> tuple[float, float]:
+        return (self.forehead, self.brow + 0.026)
+
+    @property
+    def brim_slope(self) -> float:
+        return (self.eye - 0.025 - self.brim_front[1]) / (self.back - 0.002 - self.forehead)
+
+    @property
+    def brim_plane(self) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+        return ((0.0, *self.brim_front), (0.0, -self.brim_slope, 1.0))
+
+    @property
+    def cuff_height(self) -> float:
+        return 0.18 * (self.crown - self.chin)
+
+    def above_brim(self, co: Vector) -> float:
+        """Height of a point above the beanie's brim plane."""
+        return co.z - (self.brim_front[1] + self.brim_slope * (co.y - self.forehead))
+
+    # The scarf frames the face with an oval, seen from the front: above the brows to under the chin.
+    @property
+    def face_center(self) -> Vector:
+        return Vector((0.0, 0.0, (self.brow + 0.042 + self.chin) / 2.0))
+
+    @property
+    def face_half_height(self) -> float:
+        return (self.brow + 0.042 - self.chin) / 2.0
+
+    @property
+    def face_half_width(self) -> float:
+        return 0.84 * self.half_width
+
+    def in_front(self, co: Vector) -> bool:
+        """Whether a point is on the face, in front of the ears."""
+        return co.y < self.ear_front - 0.004
+
+    def face_oval(self, co: Vector) -> float:
+        """Below 1 inside the scarf's face opening, above 1 outside it."""
+        if not self.in_front(co):
+            return 2.0
+        return math.hypot(co.x / self.face_half_width, (co.z - self.face_center.z) / self.face_half_height)
+
+
+def measure_head(
+    rig: bpy.types.Object,
+    body: bpy.types.Object,
+    eyes: bpy.types.Object,
+    brows: bpy.types.Object,
+    top: bpy.types.Object,
+) -> Head:
+    shoulders = rig.data.bones["spine_03"].tail_local.z
+    skin = [vertex.co for vertex in body.data.vertices if vertex.co.z > shoulders]
+    middle = [co for co in skin if abs(co.x) < 0.012]
+    eye = sum(vertex.co.z for vertex in eyes.data.vertices) / len(eyes.data.vertices)
+    brow = max(vertex.co.z for vertex in brows.data.vertices)
+
+    def group_bounds(name: str, keep=lambda co: True) -> tuple[Vector, Vector]:
+        index = body.vertex_groups[name].index
+        inside = [
+            vertex.co for vertex in body.data.vertices
+            if keep(vertex.co) and any(item.group == index and item.weight > 0 for item in vertex.groups)
+        ]
+        return (
+            Vector(min(co[axis] for co in inside) for axis in range(3)),
+            Vector(max(co[axis] for co in inside) for axis in range(3)),
+        )
+
+    ear_low, ear_high = group_bounds("ears", lambda co: co.x > 0)
+    lips_low, lips_high = group_bounds("lips")
+
+    # Walking down the profile from the mouth, the chin ends where the skin has
+    # turned back 3 cm behind the most forward point passed so far.
+    profile: dict[int, float] = {}
+    for co in middle:
+        if shoulders < co.z < lips_low.z and co.y < ear_low.y:
+            step = int(co.z / 0.003)
+            profile[step] = min(profile.get(step, co.y), co.y)
+    forward = lips_low.y
+    chin = shoulders
+    for step in sorted(profile, reverse=True):
+        forward = min(forward, profile[step])
+        if profile[step] > forward + 0.03:
+            chin = step * 0.003
+            break
+
+    return Head(
+        shoulders=shoulders,
+        crown=max(co.z for co in skin),
+        brow=brow,
+        eye=eye,
+        chin=chin,
+        forehead=min(co.y for co in middle if brow + 0.018 < co.z < brow + 0.04),
+        back=max(co.y for co in skin if co.z > eye),
+        half_width=max(abs(co.x) for co in skin if co.z > brow + 0.025),
+        ear=(ear_low + ear_high) / 2.0,
+        ear_front=ear_low.y,
+        collar=world_z_range(top)[1],
+        neck=rig.data.bones["neck_01"].head_local.copy(),
+        shoulder_reach=abs(rig.data.bones["upperarm_l"].head_local.x),
+    )
+
+
+def cut_oval(mesh: bmesh.types.BMesh, center: Vector, across: Vector, up: Vector, half_across: float, half_up: float, *, keep: str, applies=lambda co: True) -> None:
+    """Cuts a mesh along an oval cylinder, leaving a clean edge, and keeps what is inside or outside it.
+
+    The oval lies in the plane of the unit vectors across and up, around
+    center. It is cut as a many-sided polygon: each side scores the faces near
+    the oval along one of its tangents, then one side of the polygon goes.
+    Only faces whose middle satisfies applies() are touched.
+    """
+    def reach(co: Vector) -> float:
+        offset = co - center
+        return math.hypot(offset.dot(across) / half_across, offset.dot(up) / half_up)
+
     tangents = []
-    for side in range(sides):
-        angle = 2.0 * math.pi * side / sides
-        point = Vector((FACE_HALF_WIDTH * math.cos(angle), 0.0, FACE_CENTER_Z + FACE_HALF_HEIGHT * math.sin(angle)))
-        normal = Vector((math.cos(angle) / FACE_HALF_WIDTH, 0.0, math.sin(angle) / FACE_HALF_HEIGHT)).normalized()
+    for side in range(32):
+        angle = 2.0 * math.pi * side / 32
+        point = center + across * (half_across * math.cos(angle)) + up * (half_up * math.sin(angle))
+        normal = (across * (math.cos(angle) / half_across) + up * (math.sin(angle) / half_up)).normalized()
         tangents.append((point, normal))
-        around = [face for face in mesh.faces if 0.7 < face_oval(face.calc_center_median()) < 1.4]
+        around = [
+            face for face in mesh.faces
+            if applies(face.calc_center_median()) and 0.7 < reach(face.calc_center_median()) < 1.4
+        ]
         geometry = set(around)
         for face in around:
             geometry.update(face.edges)
             geometry.update(face.verts)
         bmesh.ops.bisect_plane(mesh, geom=list(geometry), plane_co=point, plane_no=normal)
 
-    def inside(center: Vector) -> bool:
-        return center.y < -0.02 and all((center - point).dot(normal) < 0.0 for point, normal in tangents)
+    def inside(co: Vector) -> bool:
+        return applies(co) and all((co - point).dot(normal) < 0.0 for point, normal in tangents)
 
-    opening = [face for face in mesh.faces if inside(face.calc_center_median())]
-    bmesh.ops.delete(mesh, geom=opening, context="FACES")
+    doomed = [face for face in mesh.faces if inside(face.calc_center_median()) != (keep == "inside")]
+    bmesh.ops.delete(mesh, geom=doomed, context="FACES")
 
 
-def build_headwear(body: bpy.types.Object, top: bpy.types.Object, hair: list[bpy.types.Object]) -> dict[str, bpy.types.Object]:
-    brim_plane = ((0.0, BRIM_FRONT[0], BRIM_FRONT[1]), (0.0, -BRIM_SLOPE, 1.0))
+X_AXIS, Y_AXIS, Z_AXIS = Vector((1.0, 0.0, 0.0)), Vector((0.0, 1.0, 0.0)), Vector((0.0, 0.0, 1.0))
 
+
+def bridge_ears(mesh: bmesh.types.BMesh, ears: int) -> None:
+    """Replaces each ear of a head mesh with a flat patch across its outline."""
+    deform = mesh.verts.layers.deform.verify()
+
+    def on_ear(element) -> bool:
+        return all(group_weight(vertex, deform, ears) > 0 for vertex in element.verts)
+
+    bmesh.ops.delete(mesh, geom=[face for face in mesh.faces if on_ear(face)], context="FACES")
+    outlines = [edge for edge in mesh.edges if edge.is_boundary and on_ear(edge)]
+    patches = bmesh.ops.holes_fill(mesh, edges=outlines, sides=0)["faces"]
+    bmesh.ops.triangulate(mesh, faces=patches)
+    # The patches must face outward like the skin around them.
+    bmesh.ops.recalc_face_normals(mesh, faces=mesh.faces[:])
+
+
+def build_headwear(head: Head, body: bpy.types.Object, top: bpy.types.Object, hair: list[bpy.types.Object]) -> dict[str, bpy.types.Object]:
     # The hair is only ever seen under the beanie (the scarf covers it whole),
     # so what the beanie would hide is cut away rather than left to poke through.
+    brim_point, brim_normal = head.brim_plane
     for piece in hair:
-        bisect(piece, brim_plane[0], tuple(-component for component in brim_plane[1]))
+        bisect(piece, brim_point, tuple(-component for component in brim_normal))
 
     beanie = fitted_layer(
         body,
         "player_beanie_knit",
-        lambda vertex, layer: vertex.co.z > NECK_BASE and above_brim(vertex.co) > -0.02,
-        cut=brim_plane,
+        lambda vertex, layer: vertex.co.z > head.shoulders and head.above_brim(vertex.co) > -0.02,
+        cut=head.brim_plane,
         # A rolled cuff: the lowest band of the hat stands further off the head.
-        thickness=lambda vertex: 0.022 if above_brim(vertex.co) < CUFF_HEIGHT else 0.012,
+        thickness=lambda vertex: 0.022 if head.above_brim(vertex.co) < head.cuff_height else 0.012,
         smoothing=6,
     )
     # Scored where the cuff ends, so its darker color stops on a clean line.
-    bisect(beanie, (0.0, BRIM_FRONT[0], BRIM_FRONT[1] + CUFF_HEIGHT), brim_plane[1], keep_both=True)
+    bisect(beanie, (0.0, head.forehead, head.brim_front[1] + head.cuff_height), brim_normal, keep_both=True)
 
     ears = body.vertex_groups["ears"].index
 
     def shape_scarf(mesh: bmesh.types.BMesh) -> None:
-        # Cloth bridges an ear rather than following its folds: each ear is
-        # replaced by a flat patch across its outline. (The look hides the ears
-        # themselves under the scarf.)
-        deform = mesh.verts.layers.deform.verify()
-
-        def on_ear(element) -> bool:
-            return all(group_weight(vertex, deform, ears) > 0 for vertex in element.verts)
-
-        bmesh.ops.delete(mesh, geom=[face for face in mesh.faces if on_ear(face)], context="FACES")
-        outlines = [edge for edge in mesh.edges if edge.is_boundary and on_ear(edge)]
-        patches = bmesh.ops.holes_fill(mesh, edges=outlines, sides=0)["faces"]
-        bmesh.ops.triangulate(mesh, faces=patches)
+        # Cloth bridges an ear rather than following its folds. (The look hides
+        # the ears themselves under the scarf.)
+        bridge_ears(mesh, ears)
         # The skin still dips toward the ear canal around each patch; ironed flat here.
         around = [
             vertex for vertex in mesh.verts
-            if (vertex.co - Vector((math.copysign(0.066, vertex.co.x), -0.036, 1.192))).length < 0.04
+            if (vertex.co - Vector((math.copysign(head.ear.x - 0.004, vertex.co.x), head.ear.y, head.ear.z))).length < 0.04
         ]
         for _ in range(12):
             bmesh.ops.smooth_vert(mesh, verts=around, factor=0.5, use_axis_x=True, use_axis_y=True, use_axis_z=True)
-        cut_face_opening(mesh)
+        # The face opening: an oval seen from the front, cut through the front of the head only.
+        cut_oval(
+            mesh, head.face_center, X_AXIS, Z_AXIS, head.face_half_width, head.face_half_height,
+            keep="outside", applies=head.in_front,
+        )
 
     scarf = fitted_layer(
         body,
         "player_scarf_wrap",
-        lambda vertex, layer: vertex.co.z > NECK_BASE,
+        lambda vertex, layer: vertex.co.z > head.shoulders,
         shape=shape_scarf,
         thickness=lambda vertex: 0.014,
         smoothing=14,
         detail=0.45,
     )
-    # A capelet over the collar and shoulders, cut from the top it rests on.
-    drape_plane = ((0.0, DRAPE_FRONT[0], DRAPE_FRONT[1]), (0.0, -DRAPE_SLOPE, 1.0))
-    drape = fitted_layer(
-        top,
-        "player_scarf_drape",
-        lambda vertex, layer: vertex.co.z > DRAPE_FRONT[1] + DRAPE_SLOPE * (vertex.co.y - DRAPE_FRONT[0]) - 0.04,
-        cut=drape_plane,
-        thickness=lambda vertex: 0.009,
-        smoothing=3,
-    )
+
+    drape = build_cowl(head, body, top)
     return {"player_beanie_knit": beanie, "player_scarf_wrap": scarf, "player_scarf_drape": drape}
 
 
+def landing(surface: BVHTree, start: Vector) -> float | None:
+    """The height at which something dropped from start first lands on top of a surface.
+
+    Undersides are passed through: a point that starts inside the jaw or the
+    neck comes out of it and keeps falling.
+    """
+    point = start.copy()
+    for _ in range(6):
+        hit, normal, _, _ = surface.ray_cast(point, Vector((0.0, 0.0, -1.0)))
+        if hit is None:
+            return None
+        if normal.z > 0.0:
+            return hit.z
+        point = hit - Vector((0.0, 0.0, 0.001))
+    return None
+
+
+def build_cowl(head: Head, body: bpy.types.Object, top: bpy.types.Object) -> bpy.types.Object:
+    """The scarf's drape: cloth falling from under the jaw onto the collarbones.
+
+    Rings of vertices spread from the neck, just under the chin, out to an oval
+    edge that stays inside the shoulders and reaches lower on the chest than on
+    the back. Each ring is dropped onto whatever it lies over, the neck or the
+    top, and held a little off it: a soft fold near the neck thinning to an edge
+    that rests on the cloth below.
+    """
+    segments = 32
+    # How far each ring stands off what it lies on, from the neck outward.
+    stand_off = (0.004, 0.02, 0.017, 0.011, EDGE_STAND_OFF)
+    dependency = bpy.context.evaluated_depsgraph_get()
+    surfaces = [BVHTree.FromObject(top, dependency), BVHTree.FromObject(body, dependency)]
+
+    # The neck's outline just under the chin, where the head wrap ends.
+    ring_height = head.chin - 0.002
+    throat = [
+        vertex.co for vertex in body.data.vertices
+        if abs(vertex.co.z - ring_height) < 0.012 and vertex.co.y > head.forehead + 0.05
+    ]
+    neck_front, neck_back = min(co.y for co in throat), max(co.y for co in throat)
+    neck_side = max(abs(co.x) for co in throat)
+    neck_middle = (neck_front + neck_back) / 2.0
+
+    # How far the drape reaches over each shoulder, the chest, and the back.
+    side_reach = 0.95 * head.shoulder_reach
+    chest = [vertex.co for vertex in top.data.vertices if abs(vertex.co.x) < 0.03]
+    front_reach = min(co.y for co in chest if abs(co.z - (head.collar - 0.08)) < 0.02) + 0.01
+    back_reach = max(co.y for co in chest if abs(co.z - (head.collar - 0.045)) < 0.02) - 0.01
+
+    rings: list[list[Vector]] = [[] for _ in stand_off]
+    for segment in range(segments):
+        angle = 2.0 * math.pi * segment / segments
+        across, along = math.cos(angle), math.sin(angle)
+        inner = Vector((
+            neck_side * across,
+            neck_middle + (neck_back - neck_middle if along > 0 else neck_middle - neck_front) * along,
+            ring_height,
+        ))
+        outer = Vector((
+            side_reach * across,
+            head.neck.y + (back_reach - head.neck.y if along > 0 else head.neck.y - front_reach) * along,
+            ring_height,
+        ))
+        for level, clearance in enumerate(stand_off):
+            point = inner.lerp(outer, level / (len(stand_off) - 1))
+            if level == 0:
+                rings[level].append(point + Vector((across, along, 0.0)).normalized() * clearance)
+                continue
+            # Dropped from chin height, so the head above never gets in the way.
+            heights = [height for height in (landing(surface, point) for surface in surfaces) if height is not None]
+            if not heights:
+                raise SystemExit("The scarf's drape reaches past the body it should rest on")
+            rings[level].append(Vector((point.x, point.y, min(max(heights), ring_height) + clearance)))
+
+    vertices = [point for ring in rings for point in ring]
+    faces = [
+        (level * segments + segment, level * segments + (segment + 1) % segments,
+         (level + 1) * segments + (segment + 1) % segments, (level + 1) * segments + segment)
+        for level in range(len(rings) - 1) for segment in range(segments)
+    ]
+    mesh = bpy.data.meshes.new("player_scarf_drape")
+    mesh.from_pydata([tuple(vertex) for vertex in vertices], [], faces)
+    mesh.update()
+    cowl = bpy.data.objects.new("player_scarf_drape", mesh)
+    for collection in top.users_collection:
+        collection.objects.link(cowl)
+    cowl.parent = top.parent
+
+    # The drape moves with the top it rests on: each vertex takes the skin
+    # weights of the nearest point of that top.
+    names = {group.index: group.name for group in top.vertex_groups}
+    nearest = KDTree(len(top.data.vertices))
+    for vertex in top.data.vertices:
+        nearest.insert(vertex.co, vertex.index)
+    nearest.balance()
+    for vertex in cowl.data.vertices:
+        _, index, _ = nearest.find(vertex.co)
+        for item in top.data.vertices[index].groups:
+            group = cowl.vertex_groups.get(names[item.group]) or cowl.vertex_groups.new(name=names[item.group])
+            group.add([vertex.index], item.weight, "REPLACE")
+    modifier = cowl.modifiers.new("Armature", "ARMATURE")
+    modifier.object = top.parent
+    return cowl
+
+
 def split_ears(body: bpy.types.Object) -> bpy.types.Object:
-    """Moves the ears into their own mesh, so the head scarf's look can hide them."""
+    """Moves the ears into their own mesh, so the head scarf's look can hide them.
+
+    The head keeps a patch of skin where each ear was, so there is no hole to
+    see into when the ears are hidden.
+    """
     index = body.vertex_groups["ears"].index
     ears = duplicate(body, "player_ear_pair")
     keep_vertices(ears, lambda vertex, layer: group_weight(vertex, layer, index) > 0)
 
     mesh = bmesh.new()
     mesh.from_mesh(body.data)
-    layer = mesh.verts.layers.deform.verify()
-    on_ear = [face for face in mesh.faces if all(group_weight(vertex, layer, index) > 0 for vertex in face.verts)]
-    bmesh.ops.delete(mesh, geom=on_ear, context="FACES")
+    bridge_ears(mesh, index)
     mesh.to_mesh(body.data)
     mesh.free()
     body.data.update()
     return ears
 
 
-def lighten_body(body: bpy.types.Object) -> bpy.types.Object:
+def lighten_body(body: bpy.types.Object, head: Head, knee: float) -> bpy.types.Object:
     """Drops skin no look ever shows and thins the hands, which the camera never studies."""
     # Rings of ankle skin are left between the shoes' and the trousers' masks,
-    # under the socks. The hands are well above them while the arms are raised.
-    keep_vertices(body, lambda vertex, layer: vertex.co.z > 0.5)
+    # under the socks. The hands are well above the knees while the arms are raised.
+    keep_vertices(body, lambda vertex, layer: vertex.co.z > knee)
     # The hands are separate pieces of the mesh, so they can be thinned on
     # their own and the face and neck keep every vertex.
     hands = duplicate(body, "hands")
-    keep_vertices(hands, lambda vertex, layer: vertex.co.z < NECK_BASE)
+    keep_vertices(hands, lambda vertex, layer: vertex.co.z < head.shoulders)
     simplify(hands, 0.34)
-    keep_vertices(body, lambda vertex, layer: vertex.co.z >= NECK_BASE)
+    keep_vertices(body, lambda vertex, layer: vertex.co.z >= head.shoulders)
     return join([body, hands], body.name)
 
 
@@ -753,8 +989,7 @@ def build_player(mpfb: dict) -> dict[str, bpy.types.Object]:
     knee = rig.data.bones["calf_l"].head_local.z
     skirt = helper_garment(body, "player_skirt", "helper-skirt", knee - 0.01, hip + 0.03)
     flare(skirt, hip + 0.03, knee - 0.01, 0.2)
-    # The leggings stop just inside the socks' tops, so neither shows through the other.
-    leggings = helper_garment(body, "player_skirt_leggings", "helper-tights", 0.166, hip + 0.05)
+    tights = helper_garment(body, "player_skirt_leggings", "helper-tights", 0.0, hip + 0.05)
 
     visible_skin(body)
 
@@ -768,6 +1003,11 @@ def build_player(mpfb: dict) -> dict[str, bpy.types.Object]:
         raise SystemExit(f"Expected two shoes and two socks, got {len(footwear)} parts")
     socks = join(footwear[:2], "player_socks")
     shoes = join(footwear[2:], "player_shoes")
+    # The leggings stop just inside the socks' tops, so neither shows through the other.
+    leggings = tights
+    bisect(leggings, (0.0, 0.0, world_z_range(socks)[1] - 0.008), (0.0, 0.0, 1.0))
+    head = measure_head(rig, body, eyes, brows, top)
+    print(f"Child: {(world_z_range(body)[1] - world_z_range(shoes)[0]) / (head.crown - head.chin):.2f} heads tall")
 
     parts = {
         "player_body": body,
@@ -782,10 +1022,10 @@ def build_player(mpfb: dict) -> dict[str, bpy.types.Object]:
         "player_skirt_leggings": leggings,
         "player_socks": socks,
         "player_shoes": shoes,
-        **build_headwear(body, top, [hair_boy, hair_girl]),
+        **build_headwear(head, body, top, [hair_boy, hair_girl]),
     }
     parts["player_ear_pair"] = ears = split_ears(body)
-    parts["player_body"] = body = lighten_body(body)
+    parts["player_body"] = body = lighten_body(body, head, knee)
     # Small on screen and simple in shape: half the faces lose nothing visible.
     for obj in (ears, shoes, leggings):
         simplify(obj, 0.5)
@@ -814,7 +1054,7 @@ def build_player(mpfb: dict) -> dict[str, bpy.types.Object]:
 
     accent, accent_dark = make_material("Player Gold", ACCENT_HEX, roughness=0.9), make_material("Player Gold Dark", ACCENT_DARK_HEX, roughness=0.9)
     assign(parts["player_beanie_knit"], accent)
-    split_material(parts["player_beanie_knit"], accent_dark, lambda center: above_brim(center) < CUFF_HEIGHT)
+    split_material(parts["player_beanie_knit"], accent_dark, lambda center: head.above_brim(center) < head.cuff_height)
     scarf = make_material("Player Scarf", ACCENT_HEX, roughness=0.9, double_sided=True)
     assign(parts["player_scarf_wrap"], scarf)
     assign(parts["player_scarf_drape"], scarf)
@@ -939,14 +1179,19 @@ def finish_clip(rig: bpy.types.Object, action: bpy.types.Action) -> None:
     reset_pose(rig)
 
 
-def bump(phase: float, center: float, sharpness: float = 1.0) -> float:
-    """A smooth 0..1 pulse centered on a phase, half a cycle wide."""
-    return max(0.0, math.cos(phase - center)) ** sharpness
-
-
-# 0.6 s per stride at 30 fps. The stride covers about 1.3 m of ground, which is
-# the speed src/player-avatar.ts plays this clip at full rate for.
-WALK_FRAMES = 18
+# The walk: an easy child's walk in place, built from where the feet are on the
+# ground rather than from joint angles. While a foot is down it stays exactly
+# where it landed as the body travels over it, so at WALK_SPEED nothing slides.
+WALK_FRAMES = 16  # One stride (two steps) in 0.53 s at 30 fps: a small child's quick, short steps.
+# Meters per second the walk covers. The realistic player moves at this speed
+# (its moveSpeed in src/player-avatar.ts), so the two must change together.
+WALK_SPEED = 1.45
+STANCE = 0.6  # Share of the stride each foot spends on the ground.
+HEEL_ROCKER, TOE_ROCKER = 0.12, 0.55  # Stance shares where the foot lies flat between them.
+HEEL_STRIKE_PITCH, TOE_OFF_PITCH = -14.0, 30.0  # Degrees; positive points the toes down.
+STEP_CLEARANCE = 0.045  # How high the ankle lifts in mid swing, in meters.
+PELVIS_BOB = 0.01
+PELVIS_SWAY = 0.012
 
 LEG_BONES = ("thigh", "calf", "foot")
 ARM_BONES = ("upperarm", "lowerarm")
@@ -957,34 +1202,172 @@ def limb_names(bones: tuple[str, ...]) -> tuple[str, ...]:
     return tuple(f"{bone}_{side}" for bone in bones for side in ("l", "r"))
 
 
+@dataclass(frozen=True)
+class Leg:
+    """A leg seen from the side, measured from the rest pose: meters, and radians of forward lean."""
+
+    hip_height: float
+    thigh: float
+    shin: float
+    thigh_lean: float
+    shin_lean: float
+    ankle_ahead: float  # How far in front of the hip the ankle rests.
+    ankle_height: float
+    toe_ahead: float  # From the ankle forward to the tip of the shoe.
+    heel_behind: float  # From the ankle back to the heel.
+
+
+def measure_leg(rig: bpy.types.Object) -> Leg:
+    bones = rig.data.bones
+    hip, knee, ankle = (bones[name].head_local for name in ("thigh_l", "calf_l", "foot_l"))
+    ball = bones["foot_l"].tail_local
+
+    def lean(upper: Vector, lower: Vector) -> float:
+        return math.atan2(upper.y - lower.y, upper.z - lower.z)  # Forward is -y.
+
+    ball_ahead = ankle.y - ball.y  # The foot bone runs from the ankle to the ball of the foot.
+    return Leg(
+        hip_height=hip.z,
+        thigh=math.hypot(knee.y - hip.y, knee.z - hip.z),
+        shin=math.hypot(ankle.y - knee.y, ankle.z - knee.z),
+        thigh_lean=lean(hip, knee),
+        shin_lean=lean(knee, ankle),
+        ankle_ahead=hip.y - ankle.y,
+        ankle_height=ankle.z,
+        toe_ahead=1.45 * ball_ahead,
+        heel_behind=0.4 * ball_ahead,
+    )
+
+
+def pitched(ahead: float, up: float, degrees: float) -> tuple[float, float]:
+    """A point of the foot, given ahead of and above its pivot, after the foot pitches toes-down."""
+    angle = math.radians(degrees)
+    return (ahead * math.cos(angle) + up * math.sin(angle), -ahead * math.sin(angle) + up * math.cos(angle))
+
+
+def ease(share: float) -> float:
+    return share * share * (3.0 - 2.0 * share)
+
+
+def foot_placement(leg: Leg, phase: float) -> tuple[float, float, float]:
+    """Where one ankle is at a phase (0..1) of its stride: meters ahead of the hip, meters up, and pitch.
+
+    The stride starts at this foot's heel strike. The body moves forward at
+    WALK_SPEED, so a point resting on the ground drifts backward under it.
+    """
+    stride = WALK_SPEED * WALK_FRAMES / FPS
+    travel = stride * STANCE  # How far the ground passes while the foot is down.
+    # The heel lands far enough ahead that the ankle is under the hip mid stance.
+    heel_landing = leg.ankle_ahead + 0.42 * travel - leg.heel_behind
+
+    def stance(share: float) -> tuple[float, float, float]:
+        ground = heel_landing - travel * share  # Where the heel's landing spot is now.
+        if share < HEEL_ROCKER:
+            # The foot lands on its heel and rolls flat around it.
+            pitch = HEEL_STRIKE_PITCH * (1.0 - share / HEEL_ROCKER)
+            ahead, up = pitched(leg.heel_behind, leg.ankle_height, pitch)
+            return (ground + ahead, up, pitch)
+        if share < TOE_ROCKER:
+            return (ground + leg.heel_behind, leg.ankle_height, 0.0)
+        # The heel lifts and the foot rolls over its toe, which stays where it is.
+        pitch = TOE_OFF_PITCH * ease((share - TOE_ROCKER) / (1.0 - TOE_ROCKER))
+        ahead, up = pitched(-leg.toe_ahead, leg.ankle_height, pitch)
+        return (ground + leg.heel_behind + leg.toe_ahead + ahead, up, pitch)
+
+    if phase < STANCE:
+        return stance(phase / STANCE)
+    # Swing: the foot lifts and travels from where it left the ground to its next landing.
+    share = (phase - STANCE) / (1.0 - STANCE)
+    left_ahead, left_up, left_pitch = stance(1.0)
+    land_ahead, land_up, land_pitch = stance(0.0)
+    glide = ease(share)
+    return (
+        left_ahead + (land_ahead - left_ahead) * glide,
+        left_up + (land_up - left_up) * glide + STEP_CLEARANCE * math.sin(math.pi * share),
+        left_pitch + (land_pitch - left_pitch) * ease(min(share / 0.7, 1.0)),
+    )
+
+
+def hip_height(leg: Leg, phase: float) -> float:
+    """The hips ride lowest as a heel lands and highest as the body passes over the standing foot."""
+    ahead, up, _ = foot_placement(leg, 0.0)
+    reach = 0.992 * (leg.thigh + leg.shin)  # The leading leg lands almost straight.
+    lowest = up + math.sqrt(reach * reach - ahead * ahead)
+    return lowest + PELVIS_BOB * (1.0 - math.cos(4.0 * math.pi * phase))
+
+
+def leg_angles(leg: Leg, hip: float, ahead: float, up: float) -> tuple[float, float]:
+    """Two-bone IK in the side view: the thigh's and shin's forward lean (radians) that put the ankle there."""
+    drop = hip - up
+    distance = min(math.hypot(ahead, drop), 0.999 * (leg.thigh + leg.shin))
+    line = math.atan2(ahead, drop)
+    at_hip = math.acos((leg.thigh ** 2 + distance ** 2 - leg.shin ** 2) / (2.0 * leg.thigh * distance))
+    at_knee = math.acos((leg.thigh ** 2 + leg.shin ** 2 - distance ** 2) / (2.0 * leg.thigh * leg.shin))
+    thigh_lean = line + at_hip  # The knee bends forward of the hip-to-ankle line.
+    return thigh_lean, thigh_lean - (math.pi - at_knee)
+
+
 def animate_walk(rig: bpy.types.Object) -> None:
-    """A brisk child's walk in place: phase 0 is the left leg passing under the body."""
     action = new_clip(rig, "walk")
     bones = rig.pose.bones
+    leg = measure_leg(rig)
     for frame in range(WALK_FRAMES + 1):
-        cycle = 2.0 * math.pi * frame / WALK_FRAMES
-        for side, sign, phase in (("l", 1.0, cycle), ("r", -1.0, cycle + math.pi)):
-            swing = math.sin(phase)  # +1: this leg is fully forward
-            thigh = -31.0 * swing - 5.0
-            knee = 7.0 + 58.0 * bump(phase, -0.55, 1.6) + 9.0 * bump(phase, math.pi / 2 + 0.55, 4.0)
-            # Toes lift into the heel strike and point down at push-off.
-            foot_pitch = -swing * (14.0 if swing > 0 else 24.0)
-            turn(bones[f"thigh_{side}"], ("X", thigh))
-            turn(bones[f"calf_{side}"], ("X", knee))
-            turn(bones[f"foot_{side}"], ("X", foot_pitch - thigh - knee))
-            # Arms swing against the legs, elbows bending more as they come forward.
-            turn(bones[f"upperarm_{side}"], ("X", 27.0 * swing + 4.0), ("Y", sign * -3.0))
-            turn(bones[f"lowerarm_{side}"], ("X", -(30.0 - 18.0 * swing)))
+        phase = frame / WALK_FRAMES
+        hip = hip_height(leg, phase)
+        # The body leans over whichever foot is carrying it: the left at phase 0.3.
+        sway = PELVIS_SWAY * math.cos(2.0 * math.pi * (phase - 0.3))
+        shift(bones["pelvis"], (sway, 0.0, hip - leg.hip_height))
 
-        sway = math.sin(cycle)
-        turn(bones["pelvis"], ("X", 4.0), ("Z", -5.0 * sway), ("Y", 2.0 * math.cos(cycle)))
-        shift(bones["pelvis"], (-0.012 * math.cos(cycle), 0.0, 0.014 * math.cos(2.0 * cycle) - 0.012))
-        for name in ("spine_01", "spine_02", "spine_03"):
-            turn(bones[name], ("X", 1.0), ("Z", 3.4 * sway), ("Y", -0.7 * math.cos(cycle)))
-        turn(bones["neck_01"], ("X", -2.5), ("Z", -2.6 * sway))
-        turn(bones["head"], ("X", -2.5), ("Z", -2.6 * sway))
+        for side, sign, offset in (("l", 1.0, 0.0), ("r", -1.0, 0.5)):
+            ahead, up, pitch = foot_placement(leg, (phase + offset) % 1.0)
+            thigh_lean, shin_lean = leg_angles(leg, hip, ahead, up)
+            # A positive turn about X carries a hanging limb backward.
+            thigh = -math.degrees(thigh_lean - leg.thigh_lean)
+            shin = -math.degrees(shin_lean - leg.shin_lean)
+            # The legs tilt against the sway, so the feet stay under their own tracks.
+            tilt = math.degrees(math.atan2(sway, hip))
+            turn(bones[f"thigh_{side}"], ("X", thigh), ("Y", tilt))
+            turn(bones[f"calf_{side}"], ("X", shin - thigh))
+            # The foot undoes the leg's turns in reverse, then takes its own pitch.
+            turn(bones[f"foot_{side}"], ("X", pitch), ("Y", -tilt), ("X", -shin))
+
+            # Arms swing gently against the legs, the elbow easing as the arm comes forward.
+            reach = -math.cos(2.0 * math.pi * (phase + offset))  # +1: this arm is fully forward.
+            turn(bones[f"upperarm_{side}"], ("X", -13.0 * reach + 2.0))
+            turn(bones[f"lowerarm_{side}"], ("X", -(11.0 + 6.0 * reach)))
+
+        twist = math.cos(2.0 * math.pi * phase)  # The shoulders turn a little against the hips.
+        turn(bones["spine_01"], ("X", 1.5))
+        turn(bones["spine_02"], ("Z", 1.6 * twist))
+        turn(bones["spine_03"], ("Z", 1.6 * twist))
+        turn(bones["neck_01"], ("X", -0.8), ("Z", -1.6 * twist))
+        turn(bones["head"], ("X", -0.7), ("Z", -1.6 * twist))
         key(rig, frame + 1, limb_names(LEG_BONES) + limb_names(ARM_BONES) + TRUNK_BONES, location=("pelvis",))
     finish_clip(rig, action)
+
+
+def check_walk(rig: bpy.types.Object) -> float:
+    """Plays the walk and returns how far a planted foot slides, in meters.
+
+    Measured on the posed skeleton: while the foot lies flat, the ankle should
+    move backward under the body at exactly WALK_SPEED.
+    """
+    scene = bpy.context.scene
+    rig.animation_data.action = bpy.data.actions["walk"]
+    flat_start, flat_end = HEEL_ROCKER * STANCE, TOE_ROCKER * STANCE
+    spots = []
+    for frame in range(WALK_FRAMES + 1):
+        phase = frame / WALK_FRAMES
+        if not flat_start <= phase <= flat_end:
+            continue
+        scene.frame_set(frame + 1)
+        ankle = rig.pose.bones["foot_l"].head
+        # Where on the ground the ankle is, with the body's travel added back.
+        spots.append((-ankle.y + WALK_SPEED * frame / FPS, ankle.x, ankle.z))
+    rig.animation_data.action = None
+    reset_pose(rig)
+    scene.frame_set(1)
+    return max(max(spot[axis] for spot in spots) - min(spot[axis] for spot in spots) for axis in range(3))
 
 
 IDLE_FRAMES = 120  # a 4 s loop
@@ -1063,11 +1446,12 @@ def export_player(rig: bpy.types.Object, meshes: list[bpy.types.Object]) -> None
 
 
 VIEWS = (
-    # name, camera angle around the child (0 = front), look-at height as a fraction of the child, distance, lens
-    ("front", 0.0, 0.5, 4.2, 60.0),
-    ("threeq", 35.0, 0.5, 4.2, 60.0),
-    ("back", 180.0, 0.5, 4.2, 60.0),
-    ("face", 12.0, 0.9, 1.5, 70.0),
+    # name, camera angle around the child (0 = front), then the look-at height and
+    # the camera's distance as multiples of the child's height, then the lens
+    ("front", 0.0, 0.5, 3.0, 60.0),
+    ("threeq", 35.0, 0.5, 3.0, 60.0),
+    ("back", 180.0, 0.5, 3.0, 60.0),
+    ("face", 12.0, 0.87, 1.15, 70.0),
 )
 
 
@@ -1143,11 +1527,11 @@ def render_preview(player: dict[str, bpy.types.Object], height: float, directory
         render.resolution_percentage = 70  # Four frames side by side make the strip.
         for name, angle in (("front", 14.0), ("back", 166.0)) if label == "boy" else (("front", 14.0),):
             frames.append(TEXTURE_DIR / f"preview-{label}-{name}.png")
-            shot(frames[-1], angle, height * 0.5, 3.4, 60.0)
+            shot(frames[-1], angle, height * 0.5, height * 2.6, 60.0)
         render.resolution_percentage = 100
         if directory:
             for name, angle, target, distance, lens in VIEWS:
-                shot(directory / f"{label}-{name}.png", angle, height * target, distance, lens)
+                shot(directory / f"{label}-{name}.png", angle, height * target, height * distance, lens)
     show_look(player, *LOOKS[0][1:])
 
     strips = []
@@ -1199,7 +1583,7 @@ def validate_export() -> None:
     triangles = sum(len(polygon.vertices) - 2 for obj in meshes for polygon in obj.data.polygons)
     if abs(low) > 0.006:
         raise RuntimeError(f"{OUTPUT_PATH.name}: ground is z={low:.5f} m after import, expected 0")
-    if not 1.28 <= tall <= 1.4:
+    if not 1.05 <= tall <= 1.2:
         raise RuntimeError(f"{OUTPUT_PATH.name}: unexpected height {tall:.4f} m")
     if abs(center_x) > 0.01:
         raise RuntimeError(f"{OUTPUT_PATH.name}: not centered between the feet (x={center_x:.4f})")
@@ -1227,6 +1611,10 @@ def main() -> None:
     render_preview(player, max(world_z_range(obj)[1] for obj in meshes), views)
     animate_idle(rig)
     animate_walk(rig)
+    slide = check_walk(rig)
+    if slide > 0.006:
+        raise RuntimeError(f"The planted foot slides {slide * 1000:.1f} mm during the walk")
+    print(f"PASS walk: a planted foot stays within {slide * 1000:.1f} mm at {WALK_SPEED} m/s")
     export_player(rig, meshes)
     validate_export()
 

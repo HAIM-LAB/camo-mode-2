@@ -23,7 +23,7 @@ Picking one leads to character customization on a live preview of that character
 - trousers or skirt;
 - beanie or head scarf.
 
-**Let's play!** enters the playroom as that character, which idles and walks with its own animation. The style and the look are saved in the browser's `localStorage` and never leave the machine.
+**Let's play!** enters the playroom as that character, which idles and walks with its own animation. The realistic child walks at a young child's pace, so it crosses the room more slowly than the cartoon character. The style and the look are saved in the browser's `localStorage` and never leave the machine.
 
 For development, add `?skipMenu=1` (for example [http://localhost:4173/?skipMenu=1](http://localhost:4173/?skipMenu=1)) to skip every menu and load straight into the playroom with the saved or default style and look.
 
