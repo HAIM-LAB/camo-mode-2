@@ -16,10 +16,24 @@ export interface AssetLoadSummary {
   total: number;
 }
 
-type AssetTargets = Record<AssetId, Group>;
+type AssetTargets = Partial<Record<AssetId, Group>>;
 type ProgressCallback = (summary: AssetLoadSummary) => void;
+/** Finishes a freshly loaded model before it replaces its procedural stand-in. */
+type AssetPreparers = Partial<Record<AssetId, (model: Object3D) => void>>;
 
-function disposeObject(root: Object3D): void {
+/**
+ * A group that shows the procedural stand-in until OptionalAssetLoader swaps
+ * the approved GLB into it.
+ */
+export function createVisualTarget(fallback: Group, name: string): Group {
+  const target = new Group();
+  target.name = `${name}-visual`;
+  target.userData.assetMode = 'procedural';
+  target.add(fallback);
+  return target;
+}
+
+export function disposeObject(root: Object3D): void {
   root.traverse((child) => {
     if (!(child instanceof Mesh)) return;
     child.geometry.dispose();
@@ -68,10 +82,14 @@ function prepareModel(model: Object3D, id: AssetId): Object3D {
 export class OptionalAssetLoader {
   private readonly loader = new GLTFLoader();
 
-  async load(targets: AssetTargets, onProgress: ProgressCallback): Promise<AssetLoadSummary> {
+  async load(
+    targets: AssetTargets,
+    onProgress: ProgressCallback,
+    preparers: AssetPreparers = {},
+  ): Promise<AssetLoadSummary> {
     const loaded: AssetId[] = [];
     const fallback: AssetId[] = [];
-    const entries = Object.entries(ASSET_URLS) as [AssetId, string][];
+    const entries = Object.entries(targets) as [AssetId, Group][];
 
     const publish = (): AssetLoadSummary => {
       const summary = {
@@ -86,22 +104,24 @@ export class OptionalAssetLoader {
 
     publish();
     await Promise.all(
-      entries.map(async ([id, url]) => {
+      entries.map(async ([id, target]) => {
+        const url = ASSET_URLS[id];
         try {
           const gltf = await this.loader.loadAsync(url);
           if (!gltf.scene || gltf.scene.children.length === 0) {
             throw new Error('GLB contains no scene geometry');
           }
-          const target = targets[id];
+          const model = prepareModel(gltf.scene, id);
+          preparers[id]?.(model);
           const oldVisuals = [...target.children];
           target.clear();
-          target.add(prepareModel(gltf.scene, id));
+          target.add(model);
           for (const oldVisual of oldVisuals) disposeObject(oldVisual);
           target.userData.assetMode = 'glb';
           target.userData.assetUrl = url;
           loaded.push(id);
         } catch (error) {
-          targetFallback(targets[id], url, error);
+          targetFallback(target, url, error);
           fallback.push(id);
         }
         publish();

@@ -12,6 +12,17 @@ npm install && npm run dev
 
 Open [http://localhost:4173](http://localhost:4173). Vite also prints a network URL for testing on another device.
 
+The game opens on a start menu. **Play** leads to character customization on a live preview of the child's character:
+- Boy or girl, which changes only the hair;
+- skin tone;
+- outfit colors;
+- trousers or skirt;
+- beanie or head scarf.
+
+**Let's play!** enters the playroom wearing that look. The choice is saved in the browser's `localStorage` and never leaves the machine.
+
+For development, add `?skipMenu=1` (for example [http://localhost:4173/?skipMenu=1](http://localhost:4173/?skipMenu=1)) to skip both menus and load straight into the playroom with the saved or default look.
+
 **No API keys are required.** With no `.env` present the keyless mock brain drives the conversation from authored offline lines, so the full path — approach a character, open the panel, exchange turns, watch the story move — works out of the box.
 
 ## Controls
@@ -60,7 +71,7 @@ npm run build
 npm run preview
 ```
 
-The production preview is also served at `http://localhost:4173`; the dialogue proxy is installed on it as well as on the dev server. `window.__CAMO_DEMO__.getState()` provides a read-only smoke-test snapshot of readiness, player and entity positions, carried item, active prompt, asset modes, and dialogue state.
+The production preview is also served at `http://localhost:4173`; the dialogue proxy is installed on it as well as on the dev server. `window.__CAMO_DEMO__.getState()` provides a read-only smoke-test snapshot of readiness, player and entity positions, carried item, active prompt, asset modes, dialogue state, and the chosen look. It exists once the playroom has started, so use `?skipMenu=1` for scripted checks.
 
 A research inspector — current beat, live emotion vector, which edge fired last turn and why, and the last assembled prompt — is available with the backtick key or `?debug=1`. It is off by default and never appears in a demo run.
 

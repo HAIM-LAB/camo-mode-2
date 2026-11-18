@@ -5,6 +5,7 @@ import {
   CircleGeometry,
   Color,
   CylinderGeometry,
+  DoubleSide,
   Group,
   Mesh,
   MeshStandardMaterial,
@@ -12,6 +13,7 @@ import {
   SphereGeometry,
   TorusGeometry,
 } from 'three';
+import { PLAYER_MATERIALS } from './player-look';
 
 const palette = Object.freeze({
   ink: 0x172033,
@@ -26,6 +28,9 @@ const palette = Object.freeze({
   wall: 0xe8e5df,
   floor: 0xd8b995,
 });
+
+// The approved player's authored hair color.
+const PLAYER_HAIR = 0x4d352c;
 
 function material(color: number, roughness = 0.78): MeshStandardMaterial {
   return new MeshStandardMaterial({ color, roughness, metalness: 0.02 });
@@ -70,20 +75,60 @@ export function createPlayerFallback(): Group {
   shadow.castShadow = false;
   avatar.add(shadow);
 
+  // Parts borrow the approved model's material names so the chosen look
+  // repaints the stand-in too.
   const body = mesh(new CapsuleGeometry(0.32, 0.52, 8, 16), palette.yellow);
+  body.material.name = PLAYER_MATERIALS.hoodie;
   body.position.y = 0.59;
   avatar.add(body);
 
   const scarf = mesh(new TorusGeometry(0.27, 0.055, 8, 24), palette.coral);
+  scarf.material.name = PLAYER_MATERIALS.trousers;
   scarf.rotation.x = Math.PI / 2;
   scarf.position.y = 0.86;
   avatar.add(scarf);
 
   addEyes(avatar, 0.68, 0.11, 0.292);
 
+  // Stand-ins for each alternative part set, named with the approved model's
+  // node prefixes so the chosen look shows the same choices here.
   const cap = mesh(new SphereGeometry(0.3, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), palette.blue);
+  cap.name = 'player_beanie_fallback';
+  cap.material.name = PLAYER_MATERIALS.pack;
   cap.position.y = 0.93;
   avatar.add(cap);
+
+  // A hood open at the front (+Z), framing the eyes.
+  const opening = 1.7;
+  const hood = mesh(
+    new SphereGeometry(0.345, 24, 14, Math.PI / 2 + opening / 2, Math.PI * 2 - opening, 0, 1.95),
+    palette.blue,
+  );
+  hood.name = 'player_scarf_fallback';
+  hood.material.name = PLAYER_MATERIALS.scarf;
+  hood.material.side = DoubleSide;
+  hood.position.y = 0.86;
+  avatar.add(hood);
+
+  const fringe = mesh(new SphereGeometry(0.1, 12, 8), PLAYER_HAIR);
+  fringe.name = 'player_hair_boy_fallback';
+  fringe.scale.set(1.4, 0.35, 0.6);
+  fringe.position.set(0.05, 0.92, 0.27);
+  avatar.add(fringe);
+
+  for (const side of [-1, 1]) {
+    const lock = mesh(new CapsuleGeometry(0.07, 0.22, 6, 10), PLAYER_HAIR);
+    lock.name = `player_hair_girl_fallback_${side < 0 ? 'L' : 'R'}`;
+    lock.position.set(side * 0.3, 0.8, -0.02);
+    avatar.add(lock);
+  }
+
+  const skirt = mesh(new CylinderGeometry(0.33, 0.4, 0.26, 20, 1, true), palette.violet);
+  skirt.name = 'player_skirt_fallback';
+  skirt.material.name = PLAYER_MATERIALS.skirt;
+  skirt.material.side = DoubleSide;
+  skirt.position.y = 0.24;
+  avatar.add(skirt);
 
   return avatar;
 }

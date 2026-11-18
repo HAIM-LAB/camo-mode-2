@@ -2,9 +2,9 @@
 
 ## Before presenting
 
-- Use a laptop viewport near 1440 × 900 and start at `http://localhost:4173`.
+- Use a laptop viewport near 1440 × 900 and start at `http://localhost:4173`. Press **Play**, pick a look, then **Let's play!**. To go straight into the room with the last saved look, start at `http://localhost:4173/?skipMenu=1` instead.
 - Wait for **Ready • approved GLBs 7/7**. If a GLB fails, the demo remains usable but the status pill reports a fallback.
-- Reload to reset the player, props, and opening composition.
+- Reload to reset the player, props, and opening composition. A plain reload returns to the start menu; with `?skipMenu=1` it goes straight back into the room.
 
 ## Beat progression
 

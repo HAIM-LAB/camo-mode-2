@@ -18,3 +18,18 @@ Character and prop bounds are centered in X/Z and moved to floor contact before 
 The living-room asset is anchored at world origin without bounds centering. Its shallow patio/backyard intentionally makes the full asset asymmetric in Z; centering aggregate bounds would incorrectly move the indoor floor and furniture. Friend B remains on that patio while player movement remains indoors. The nearest indoor doorway position is within the proximity radius, so it is the presentation/approach point for Friend B.
 
 The player and Camo start together on the rug, left of the coffee table; Friend A stands inside by the couch. Cast and props are parented to the exact integrated anchors above. Keep model-authored units in meters; make any artistic scale correction in the source lane rather than relying on application scaling.
+
+## Player customization
+
+The character menu customizes `player.glb` at runtime by name, so these names are API. Keep them on the parts they cover today when regenerating the player; `tests/player-look.test.ts` loads the real file and fails if one disappears.
+
+Materials, repainted by name:
+- `Player Skin` and `Player Skin Light` carry the skin tone. `Ink` (eyes) and `Smile` (mouth) deepen on the darker tones so the face stays readable.
+- `Player Teal`, `Player Teal Dark`, `Player Coral`, `Player Gold`, and `Player Gold Dark` carry the outfit. `Player Scarf`, `Player Scarf Dark`, and `Player Skirt` follow it: the head scarf takes the beanie's colors and the skirt the hood's.
+
+Part sets, shown or hidden by node-name prefix (one shared body; see `add_player_variants()` in `blender/cast/generate_cast.py`):
+- `player_hair_boy_*` and `player_hair_girl_*`: Boy and Girl differ only in hair. `player_hair_back` is shared.
+- `player_skirt*`: a knee-length skirt over the trouser legs.
+- `player_beanie_*` and `player_scarf_*`: headwear. The head scarf also hides every `player_hair_*`, the `player_ear_*` parts, and `player_hoodie_hood`.
+
+All parts export together, so the player's bounds include the head scarf (1.44 m tall). The default look is Boy, trousers, and beanie in the authored colors: the approved art plus the boy's fringe.
