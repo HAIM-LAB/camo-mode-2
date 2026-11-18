@@ -205,7 +205,7 @@ CHILD_MACROS = {
     "age": 0.11,
     # A little softer than average, as young children are.
     "muscle": 0.45,
-    "weight": 0.52,
+    "weight": 0.47,
     "proportions": 0.3,
     # Taller than MakeHuman's own child of this age, which comes out toddler-sized.
     "height": 0.62,
@@ -225,7 +225,7 @@ CHILD_TARGETS = {
     "upperlegs-height-decr": 0.3,
     "lowerlegs-height-decr": 0.3,
     "measure-shoulder-dist-decr": 0.5,
-    "torso-vshape-decr": 0.5,
+    "torso-vshape-decr": 0.35,
     # A round, soft face rather than a small adult's.
     "head-age-decr": 0.5,
     "head-round": 0.4,
@@ -1129,10 +1129,12 @@ def relax_rest_pose(rig: bpy.types.Object, meshes: list[bpy.types.Object]) -> No
     and the clips below are small motions around a believable pose.
     """
     bones = rig.pose.bones
-    # Arms hang by the sides with a soft bend at the elbow, feet a little closer.
+    # The arms hang with a soft bend at the elbow, held far enough out that the
+    # forearms and hands clear the round of the top and the hips below it
+    # (check_clearance() measures the gap). The feet come a little closer.
     for side, sign in (("l", 1.0), ("r", -1.0)):
-        upper = aim(bones[f"upperarm_{side}"], (sign * 0.13, 0.03, -1.0))
-        aim(bones[f"lowerarm_{side}"], (sign * 0.05, -0.2, -1.0), upper)
+        upper = aim(bones[f"upperarm_{side}"], (sign * 0.58, 0.03, -1.0))
+        aim(bones[f"lowerarm_{side}"], (sign * 0.17, -0.2, -1.0), upper)
         turn(bones[f"thigh_{side}"], ("Y", sign * 3.0))
         turn(bones[f"foot_{side}"], ("Y", sign * -3.0))
     apply_pose_as_rest(rig, meshes)
@@ -1398,6 +1400,110 @@ def animate_idle(rig: bpy.types.Object) -> None:
 
 
 # -----------------------------------------------------------------------------
+# Clearance: the hands and forearms must hang clear of the body
+
+ARM_GROUPS = ("upperarm", "lowerarm", "hand", "index", "middle", "ring", "pinky", "thumb")
+FOREARM_GROUPS = ARM_GROUPS[1:]
+# What the hands could touch in each look.
+BODY_PARTS = {
+    "trousers": ("player_trousers",),
+    "skirt": ("player_skirt", "player_skirt_leggings"),
+}
+
+
+def weight_share(obj: bpy.types.Object, rig: bpy.types.Object, prefixes: tuple[str, ...]) -> list[float]:
+    """For each vertex, the share of its skin weight that belongs to bones with these name prefixes."""
+    # The meshes also carry vertex groups that are not bones; only bones move a vertex.
+    bones = {group.index for group in obj.vertex_groups if group.name in rig.data.bones}
+    chosen = {group.index for group in obj.vertex_groups if group.index in bones and group.name.startswith(prefixes)}
+    shares = []
+    for vertex in obj.data.vertices:
+        total = sum(item.weight for item in vertex.groups if item.group in bones)
+        shares.append(sum(item.weight for item in vertex.groups if item.group in chosen) / total if total else 0.0)
+    return shares
+
+
+class Clearance:
+    """Measures the gap between the child's hands and forearms and the rest of the body.
+
+    The moving points are the skin of the hands and the cuffs and forearms of
+    the sleeves. They are measured against the torso of the top and against
+    whichever bottoms a look shows, on the posed, skinned meshes.
+    """
+
+    def __init__(self, rig: bpy.types.Object, player: dict[str, bpy.types.Object]) -> None:
+        self.player = player
+        body, top = player["player_body"], player["player_top"]
+        self.hand_points = [index for index, share in enumerate(weight_share(body, rig, FOREARM_GROUPS)) if share > 0.5]
+        self.sleeve_points = [index for index, share in enumerate(weight_share(top, rig, FOREARM_GROUPS)) if share > 0.5]
+        arm = weight_share(top, rig, ARM_GROUPS)
+        self.torso_faces = [
+            polygon.index for polygon in top.data.polygons
+            if all(arm[index] < 0.2 for index in polygon.vertices)
+        ]
+
+    def measure(self, look: str) -> tuple[float, str]:
+        """The smallest gap in meters in the current pose, and what it is between.
+
+        The gap is negative when something has sunk into the body.
+        """
+        dependency = bpy.context.evaluated_depsgraph_get()
+
+        def posed(name: str) -> bpy.types.Mesh:
+            return self.player[name].evaluated_get(dependency).data
+
+        top = posed("player_top")
+        surfaces = {"the top": BVHTree.FromPolygons(
+            [vertex.co.copy() for vertex in top.vertices],
+            [tuple(top.polygons[index].vertices) for index in self.torso_faces],
+        )}
+        for name in BODY_PARTS[look]:
+            surfaces[name.replace("player_", "the ").replace("_", " ")] = BVHTree.FromObject(self.player[name], dependency)
+        body = posed("player_body")
+        movers = {
+            "a hand": [body.vertices[index].co for index in self.hand_points],
+            "a forearm": [top.vertices[index].co for index in self.sleeve_points],
+        }
+
+        smallest = (math.inf, "")
+        for mover, points in movers.items():
+            for part, surface in surfaces.items():
+                for point in points:
+                    location, normal, _, distance = surface.find_nearest(point)
+                    inside = (point - location).dot(normal) < 0.0 and distance < 0.03
+                    smallest = min(smallest, (-distance if inside else distance, f"{mover} and {part}"))
+        return smallest
+
+
+# The least gap, in meters, allowed between a hand or forearm and the body in any frame of any look.
+MIN_CLEARANCE = 0.02
+
+
+def check_clearance(rig: bpy.types.Object, player: dict[str, bpy.types.Object]) -> dict[str, tuple[float, str]]:
+    """The smallest arm-to-body gap, and where it is, while standing, through the idle, and through the walk."""
+    scene = bpy.context.scene
+    clearance = Clearance(rig, player)
+    gaps: dict[str, tuple[float, str]] = {}
+
+    def record(label: str) -> None:
+        bpy.context.view_layer.update()
+        for look in BODY_PARTS:
+            key = f"{label} in {look}"
+            gaps[key] = min(gaps.get(key, (math.inf, "")), clearance.measure(look))
+
+    record("standing")
+    for clip, frames in (("idle", range(1, IDLE_FRAMES + 2, 6)), ("walk", range(1, WALK_FRAMES + 2))):
+        rig.animation_data.action = bpy.data.actions[clip]
+        for frame in frames:
+            scene.frame_set(frame)
+            record(clip)
+        rig.animation_data.action = None
+        reset_pose(rig)
+    scene.frame_set(1)
+    return gaps
+
+
+# -----------------------------------------------------------------------------
 # Export and validation
 
 
@@ -1615,6 +1721,11 @@ def main() -> None:
     if slide > 0.006:
         raise RuntimeError(f"The planted foot slides {slide * 1000:.1f} mm during the walk")
     print(f"PASS walk: a planted foot stays within {slide * 1000:.1f} mm at {WALK_SPEED} m/s")
+    gaps = check_clearance(rig, player)
+    for label, (gap, where) in gaps.items():
+        print(f"{'PASS' if gap >= MIN_CLEARANCE else 'FAIL'} arms {label}: {gap * 1000:.0f} mm at the closest, between {where}")
+    if min(gap for gap, _ in gaps.values()) < MIN_CLEARANCE:
+        raise RuntimeError(f"An arm comes within {MIN_CLEARANCE * 1000:.0f} mm of the body")
     export_player(rig, meshes)
     validate_export()
 

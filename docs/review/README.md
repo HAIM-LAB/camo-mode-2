@@ -87,6 +87,11 @@ close-ups are crops of the same page at twice the pixel density.
 - `20`: a look saved before styles existed loads as the cartoon player with
   every choice kept.
 - `21`, `22`: the phone layout of the style choice and of customization.
+- `24`–`30`: each character standing, from the front and from the side, in
+  trousers and (front only) in the skirt. The arms and hands hang clear of the
+  body with a visible gap. These were captured with reduced motion forced, so
+  the preview holds still at the front in the rest pose; both generators also
+  measure that gap through every frame of the idle and walk clips.
 
 Both characters were reviewed for age-appropriateness in every combination:
 - one shared child body per style, with Boy and Girl differing only in hair;

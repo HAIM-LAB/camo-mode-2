@@ -19,6 +19,7 @@ from pathlib import Path
 import bmesh
 import bpy
 from mathutils import Vector
+from mathutils.bvhtree import BVHTree
 
 
 SCRIPT_PATH = Path(__file__).resolve()
@@ -609,11 +610,13 @@ def build_player() -> None:
         add_rounded_cube("player_pack_flap", (0.0, 0.272, 0.495), (0.235, 0.03, 0.095), gold_dark, bevel=0.022)
         add_rounded_cube("player_pack_badge", (0.0, 0.273, 0.395), (0.07, 0.022, 0.07), teal, bevel=0.014, rotation=(0.0, math.radians(45.0), 0.0))
 
+        # The arms are held well out, so the mitts and the lower sleeves keep a
+        # clear gap from the tunic and the skirt (check_player_clearance() measures it).
         for side, sign in (("L", -1.0), ("R", 1.0)):
             with pivot(f"pivot_arm_{side}", (sign * 0.135, 0.0, 0.565)):
-                add_segment(f"player_sleeve_{side}", (sign * 0.135, 0.0, 0.565), (sign * 0.262, -0.012, 0.385), 0.064, teal, vertices=12)
+                add_segment(f"player_sleeve_{side}", (sign * 0.135, 0.0, 0.565), (sign * 0.312, -0.012, 0.455), 0.06, teal, vertices=12)
                 shade_smooth(bpy.data.objects[f"player_sleeve_{side}"], sharp_caps=False)
-                add_ico(f"player_hand_{side}", (sign * 0.284, -0.014, 0.352), (0.066, 0.06, 0.066), skin, smooth=True)
+                add_ico(f"player_hand_{side}", (sign * 0.34, -0.014, 0.436), (0.066, 0.06, 0.066), skin, smooth=True)
 
         with pivot("pivot_head", (0.0, 0.0, 0.62)):
             add_ico("player_head", tuple(HEAD_CENTER), tuple(HEAD_RADII), skin, subdivisions=4, smooth=True)
@@ -757,8 +760,8 @@ def idle_pose(phase: float) -> Pose:
     return {
         "pivot_leg_L": (STILL, STILL),
         "pivot_leg_R": (STILL, STILL),
-        "pivot_arm_L": ((3.0 * sway, -2.5 * breath, 0.0), STILL),
-        "pivot_arm_R": ((-3.0 * sway, 2.5 * breath, 0.0), STILL),
+        "pivot_arm_L": ((3.0 * sway, -1.5 * breath, 0.0), STILL),
+        "pivot_arm_R": ((-3.0 * sway, 1.5 * breath, 0.0), STILL),
         "pivot_body": ((0.0, 0.8 * sway, 0.0), (0.0, 0.0, 0.004 * breath)),
         "pivot_head": ((1.2 * breath, 2.6 * sway, 0.0), STILL),
     }
@@ -793,6 +796,83 @@ def animate_player() -> None:
             obj.animation_data.action = None
             obj.rotation_euler = (0.0, 0.0, 0.0)
             obj.location = rest[name]
+
+
+# What the player's arms could touch, whatever the look, and in each choice of bottoms.
+PLAYER_BODY_PARTS = ("player_tunic", "player_tunic_hem", "player_backpack", "player_pack_flap", "player_shoe_L", "player_shoe_R")
+PLAYER_BOTTOMS_PARTS = {
+    "trousers": ("player_trousers_L", "player_trousers_R"),
+    "skirt": ("player_skirt", "player_skirt_leg_L", "player_skirt_leg_R"),
+}
+# The least gap, in meters, allowed between a mitt or lower sleeve and the body in any frame of any look.
+MIN_CLEARANCE = 0.02
+
+
+def check_player_clearance() -> dict[str, float]:
+    """The smallest gap between the player's arms and body while standing and through each clip.
+
+    The mitts and the outer part of each sleeve are measured against the tunic,
+    the backpack, the shoes, and whichever bottoms a look shows. (The inner
+    part of a sleeve joins the tunic at the shoulder, so it is not a gap.)
+    """
+    scene = bpy.context.scene
+    pivots = [obj for obj in ASSET_COLLECTIONS[PLAYER_KEY].objects if obj.name.startswith("pivot_")]
+    gaps: dict[str, float] = {}
+
+    def measure(label: str) -> None:
+        dependency = bpy.context.evaluated_depsgraph_get()
+
+        def placed(name: str):
+            obj = bpy.data.objects[name]
+            return obj, obj.evaluated_get(dependency).matrix_world
+
+        movers: list[Vector] = []
+        for side in ("L", "R"):
+            hand, matrix = placed(f"player_hand_{side}")
+            movers += [matrix @ vertex.co for vertex in hand.data.vertices]
+            # A sleeve is a tube whose own Z runs from the shoulder to the cuff,
+            # with vertices only at its ends. Its lower half is what hangs free,
+            # so that half of its surface is sampled between the two rings.
+            sleeve, matrix = placed(f"player_sleeve_{side}")
+            cuff = [vertex.co for vertex in sleeve.data.vertices if vertex.co.z > 0.0]
+            for share in (0.5, 0.625, 0.75, 0.875, 1.0):
+                movers += [matrix @ Vector((co.x, co.y, co.z * (2.0 * share - 1.0))) for co in cuff]
+
+        for bottoms, parts in PLAYER_BOTTOMS_PARTS.items():
+            smallest = math.inf
+            for name in PLAYER_BODY_PARTS + parts:
+                obj, matrix = placed(name)
+                surface = BVHTree.FromPolygons(
+                    [matrix @ vertex.co for vertex in obj.data.vertices],
+                    [tuple(polygon.vertices) for polygon in obj.data.polygons],
+                )
+                for point in movers:
+                    location, normal, _, distance = surface.find_nearest(point)
+                    inside = (point - location).dot(normal) < 0.0 and distance < 0.03
+                    smallest = min(smallest, -distance if inside else distance)
+            key = f"{label} in {bottoms}"
+            gaps[key] = min(gaps.get(key, math.inf), smallest)
+
+    def play(clip: str | None) -> None:
+        for obj in pivots:
+            for track in obj.animation_data.nla_tracks:
+                track.mute = True
+            obj.animation_data.action = bpy.data.actions[f"{clip} {obj.name}"] if clip else None
+
+    play(None)
+    scene.frame_set(1)
+    measure("standing")
+    for clip, frames, step in (("idle", IDLE_FRAMES, 3), ("walk", WALK_FRAMES, 1)):
+        play(clip)
+        for frame in range(1, frames + 2, step):
+            scene.frame_set(frame)
+            measure(clip)
+    play(None)
+    for obj in pivots:
+        for track in obj.animation_data.nla_tracks:
+            track.mute = False
+    scene.frame_set(1)
+    return gaps
 
 
 def mute_player_clips() -> None:
@@ -1120,6 +1200,11 @@ def main() -> None:
     make_materials()
     build_player()
     animate_player()
+    gaps = check_player_clearance()
+    for label, gap in gaps.items():
+        print(f"{'PASS' if gap >= MIN_CLEARANCE else 'FAIL'} player arms {label}: {gap * 1000:.0f} mm clear of the body")
+    if min(gaps.values()) < MIN_CLEARANCE:
+        raise RuntimeError(f"The player's arms come within {MIN_CLEARANCE * 1000:.0f} mm of its body")
     build_friend_a()
     build_friend_b()
     build_ball()

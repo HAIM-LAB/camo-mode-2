@@ -20,7 +20,7 @@ The generator overwrites `camo-cast.blend`, `cast-lineup.png`, and these runtime
 - `/assets/cast/ball.glb`
 - `/assets/cast/block.glb`
 
-At the end of generation, each GLB is cleared into a fresh Blender scene, imported independently, and checked for geometry, file size, scale, ground contact, and expected prop centering.
+Before exporting, the generator measures the gap between the cartoon player's arms and its body while it stands and through every frame of both clips, in trousers and in the skirt, and fails if a mitt or lower sleeve comes within 20 mm. At the end of generation, each GLB is cleared into a fresh Blender scene, imported independently, and checked for geometry, file size, scale, ground contact, and expected prop centering.
 
 Blender does not write byte-identical GLBs from run to run. After changing only the player, restore the files you did not mean to touch (`git checkout -- public/assets/cast/friend-a.glb` and so on) rather than committing the churn.
 
@@ -49,7 +49,7 @@ Then, from the repository root:
   --python blender/cast/generate_realistic_player.py
 ```
 
-It overwrites `/assets/cast/player-realistic.glb` and `realistic-player-preview.png`. Before exporting it plays the walk and fails if a planted foot slides more than 6 mm. After exporting it re-imports the GLB and checks its parts, clips, height, ground contact, triangle count (28,000 at most), and size (2.5 MB at most). It stops with a pointer back to this file if MPFB or the pack is missing. Add `-- --views <directory>` to also save close-up renders of every look.
+It overwrites `/assets/cast/player-realistic.glb` and `realistic-player-preview.png`. Before exporting it plays the walk and fails if a planted foot slides more than 6 mm, and it measures the gap between the hands and forearms and the body while standing and through both clips, in trousers and in the skirt, failing under 20 mm. After exporting it re-imports the GLB and checks its parts, clips, height, ground contact, triangle count (28,000 at most), and size (2.5 MB at most). It stops with a pointer back to this file if MPFB or the pack is missing. Add `-- --views <directory>` to also save close-up renders of every look.
 
 No `.blend` is kept for this model: the script and the CC0 sources are the source, and the processed textures exist only inside the GLB.
 
@@ -60,7 +60,7 @@ What the script does with the MakeHuman sources:
 - Textures become neutral detail maps that the outfit and skin colors multiply. The shirt's print is dropped and the shoes are untextured, so no logo or brand mark survives.
 - The skirt and its leggings are cut from the base mesh's own garment helpers. The beanie and the head scarf's wrap are layers fitted over the head, the scarf's drape is laid from the neck onto the collarbones, and the hair is trimmed to what shows below the beanie. All of them are placed from measurements of the built head, so they follow any change to the body's proportions.
 - The walk is built from where the feet are on the ground and solved back to leg angles, so each planted foot stays put at the speed the game moves this player (`WALK_SPEED`, which must match `moveSpeed` in `src/player-avatar.ts`).
-- MakeHuman's A-pose is turned into a relaxed stand and made the rest pose, so the model stands naturally even where no clip plays.
+- MakeHuman's A-pose is turned into a relaxed stand and made the rest pose, so the model stands naturally even where no clip plays. The arms are held a little out, so the hands and forearms hang clear of the top, the hips, and the skirt.
 
 ## Runtime contract
 
