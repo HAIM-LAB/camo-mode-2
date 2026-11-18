@@ -103,6 +103,11 @@ close-ups are crops of the same page at twice the pixel density.
 - `41`–`44`: the same four in the playroom, under its camera, from the front,
   the side, and behind.
 
+The playroom frames in this set were captured before Camo and the friends had
+a model per style, so the Camo and friends in them are the earlier chunky
+ones. The player in them is current; [`cast/`](cast/) shows the cast as it is
+now.
+
 Both characters were reviewed for age-appropriateness in every combination:
 - one shared child body per style, with Boy and Girl differing only in hair;
 - everyday clothes that cover the torso, arms, and legs;
