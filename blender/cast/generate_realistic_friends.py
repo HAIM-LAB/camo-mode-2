@@ -46,7 +46,6 @@ PREVIEW_PATH = SCRIPT_PATH.parent / "realistic-friends-preview.png"
 
 SKIN_A = ("skins", "young_african_female/young_african_female.mhmat", "young_darkskinned_female_diffuse.png")
 SKIN_B = ("skins", "young_caucasian_male/young_caucasian_male.mhmat", "young_lightskinned_male_diffuse.png")
-EYES_B = ("eyes", "materials/green.mhmat", "green_eye.png")
 HAIR_A = ("hair", "afro01/afro01.mhclo", "Hair")
 HAIR_A_TEXTURE = "afro_diffuse.png"
 HAIR_B = ("hair", "short03/short03.mhclo", "Hair")
@@ -55,64 +54,57 @@ SUIT_B = ("clothes", "male_casualsuit05/male_casualsuit05.mhclo", "Clothes")
 
 
 # -----------------------------------------------------------------------------
-# Colors: each friend's own, the same ones the cartoon friends wear
-# (generate_cast.py), so a friend is the same child in either style.
+# Colors: each friend's own. They are the hues the cartoon friends wear
+# (generate_cast.py), so a friend is the same child in either style, at the
+# depth of the realistic player's outfits, so the realistic cast is one set.
 
 A_SKIN_HEX = "#7c4c34"
 A_HAIR_HEX = "#1f181b"
-A_MINT_HEX = "#62ddcd"
-A_LAVENDER_HEX = "#ddb0ef"
-A_PLUM_HEX = "#ae59c0"
-A_SUN_HEX = "#ffd650"
+A_MINT_HEX = "#55b79f"
+A_MINT_DARK_HEX = "#449d88"
+A_LAVENDER_HEX = "#b294d4"
+A_PLUM_HEX = "#8c4c9f"
+A_SUN_HEX = "#f0bf48"
 
 B_SKIN_HEX = "#e0b592"
 B_HAIR_HEX = "#1c2536"
-B_RUST_HEX = "#eb894e"
-B_SKY_HEX = "#50c0ea"
-B_NAVY_HEX = "#2b5984"
-B_LIME_HEX = "#d3e762"
+B_RUST_HEX = "#c96a3e"
+B_SKY_HEX = "#6cadd6"
+B_NAVY_HEX = "#324e78"
+B_LIME_HEX = "#b5c955"
 
 
 # -----------------------------------------------------------------------------
 # Bodies: the realistic player's young child, with each friend's own build and face.
 
-# Friend A is six: a little smaller and rounder in the face, with large eyes,
-# brows that lift in the middle, and only a faint smile.
+# Both friends are the player's age, six or seven, and have its build and its
+# friendly, relaxed expression. Friend A has a slightly softer smile.
 A_MACROS = {
     **rp.CHILD_MACROS,
-    "gender": 0.25,
-    "age": 0.105,
-    "height": 0.58,
+    "gender": 0.3,
     "race": {"asian": 0.05, "caucasian": 0.1, "african": 0.85},
 }
 A_MORPHS = {
     **rp.CHILD_TARGETS,
-    "head-round": 0.55,
-    "mouth-corner-puller": 0.22,
-    "l-eye-scale-incr": 0.32,
-    "r-eye-scale-incr": 0.32,
-    "eye-left-closure": 0.04,
-    "eye-right-closure": 0.04,
-    "eyebrows-angle-up": 0.5,
+    "mouth-corner-puller": 0.4,
+    "eye-left-closure": 0.08,
+    "eye-right-closure": 0.08,
 }
 
-# Friend B is seven: a little taller, with a squarer face, level brows, and a
-# wider grin.
+# Friend B is the older of the two by a year: a touch taller, with a squarer
+# face and a wider grin.
 B_MACROS = {
     **rp.CHILD_MACROS,
-    "gender": 0.8,
-    "age": 0.118,
-    "height": 0.66,
-    "weight": 0.5,
+    "gender": 0.75,
+    "age": 0.115,
+    "height": 0.64,
     "race": {"asian": 0.2, "caucasian": 0.75, "african": 0.05},
 }
 B_MORPHS = {
     **rp.CHILD_TARGETS,
-    "head-round": 0.2,
-    "head-square": 0.25,
+    "head-round": 0.25,
+    "head-square": 0.2,
     "mouth-corner-puller": 0.5,
-    "eyebrows-angle-down": 0.3,
-    "chin-width-incr": 0.3,
 }
 
 
@@ -242,15 +234,6 @@ def split_footwear(shoes: bpy.types.Object, prefix: str) -> tuple[bpy.types.Obje
     return rp.join(footwear[2:], f"{prefix}_shoes"), rp.join(footwear[:2], f"{prefix}_socks")
 
 
-def thin_hands(body: bpy.types.Object, rig: bpy.types.Object, detail: float) -> None:
-    """Thins the hands, which the camera never studies, and leaves the face, neck, and arms whole."""
-    shares = rp.weight_share(body, rig, ("hand", "index", "middle", "ring", "pinky", "thumb"))
-    body.vertex_groups.new(name="thinned").add([index for index, share in enumerate(shares) if share > 0.6], 1.0, "REPLACE")
-    rp.simplify(body, detail, "thinned")
-    # Thinning rebuilds the mesh, so the group is found again rather than held on to.
-    body.vertex_groups.remove(body.vertex_groups["thinned"])
-
-
 def add_face(mpfb: dict, body: bpy.types.Object) -> dict[str, bpy.types.Object]:
     """The realistic player's eyes, eyebrows, and eyelashes, fitted to this body."""
     return {name: rp.add_part(mpfb, body, part) for name, part in (("eyes", rp.EYES), ("brows", rp.BROWS), ("lashes", rp.LASHES))}
@@ -268,8 +251,9 @@ def eye_texture(mpfb: dict, source: tuple[str, str, str], name: str, iris: tuple
     return rp.save_pixels(name, pixels, alpha=False)
 
 
-def paint_face(mpfb: dict, face: dict[str, bpy.types.Object], prefix: str, *, eyes: tuple[str, str, str], iris: tuple[float, float, float], brow_hex: str) -> None:
-    rp.assign(face["eyes"], rp.make_material(f"{prefix} eyes", "#ffffff", texture=eye_texture(mpfb, eyes, f"{prefix}-eyes", iris), roughness=0.25))
+def paint_face(mpfb: dict, face: dict[str, bpy.types.Object], prefix: str, *, iris: tuple[float, float, float], brow_hex: str) -> None:
+    """Paints the face parts. iris shades the pack's brown iris, a red-brown, toward the friend's own."""
+    rp.assign(face["eyes"], rp.make_material(f"{prefix} eyes", "#ffffff", texture=eye_texture(mpfb, rp.EYE_TEXTURE, f"{prefix}-eyes", iris), roughness=0.3))
     rp.assign(face["brows"], rp.make_material(f"{prefix} brows", "#ffffff", texture=rp.tinted_alpha_texture(mpfb, rp.BROWS, f"{prefix}-brows", brow_hex), roughness=0.9, alpha="BLEND"))
     rp.assign(face["lashes"], rp.make_material(f"{prefix} lashes", "#ffffff", texture=rp.tinted_alpha_texture(mpfb, rp.LASHES, f"{prefix}-lashes", "#1b1412"), roughness=0.9, alpha="BLEND"))
 
@@ -401,7 +385,7 @@ def build_friend_a(mpfb: dict) -> dict[str, bpy.types.Object]:
     waist = (bones["spine_01"].head_local.z + bones["spine_02"].head_local.z) / 2.0
     hem = knee - 0.012
     skirt = rp.helper_garment(body, f"{prefix}_skirt", "helper-skirt", hem, waist + 0.004)
-    rp.flare(skirt, waist, hem, 0.34)
+    rp.flare(skirt, waist, hem, 0.22)
     leggings = rp.helper_garment(body, f"{prefix}_leggings", "helper-tights", 0.0, hip + 0.05)
     rp.visible_skin(body)
 
@@ -425,9 +409,8 @@ def build_friend_a(mpfb: dict) -> dict[str, bpy.types.Object]:
     puffs, ties = hair_puffs(afro, scalp, head, rig, prefix)
     bpy.data.objects.remove(afro)
 
-    # Skin no one sees goes: rings of ankle are left under the socks.
-    rp.keep_vertices(body, lambda vertex, deform: vertex.co.z > knee)
-    thin_hands(body, rig, 0.34)
+    # Her forearms are bare, so the arms are thinned less than the player's hidden ones.
+    body = rp.lighten_body(body, head, knee, 0.5)
     for obj in (shoes, leggings):
         rp.simplify(obj, 0.5)
     rp.simplify(puffs, 0.6)
@@ -451,8 +434,7 @@ def build_friend_a(mpfb: dict) -> dict[str, bpy.types.Object]:
         rp.strip_modifiers(obj)
 
     rp.assign(body, rp.make_material(f"{prefix} skin", A_SKIN_HEX, texture=rp.skin_texture(mpfb, body, None, source=SKIN_A, name=f"{prefix}-skin"), roughness=0.62))
-    # The pack's brown iris is a red-brown; hers are a deep brown.
-    paint_face(mpfb, face, prefix, eyes=rp.EYE_TEXTURE, iris=(0.42, 0.4, 0.38), brow_hex="#1d1513")
+    paint_face(mpfb, face, prefix, iris=(0.42, 0.4, 0.38), brow_hex="#1d1513")  # A deep brown.
     rp.assign(scalp, rp.make_material(f"{prefix} hair scalp", "#ffffff", texture=combed_texture(f"{prefix}-hair-scalp", A_HAIR_HEX), roughness=0.85, alpha="CLIP"))
     rp.assign(puffs, rp.make_material(
         f"{prefix} hair", "#ffffff", roughness=0.9, alpha="CLIP", double_sided=True,
@@ -462,7 +444,7 @@ def build_friend_a(mpfb: dict) -> dict[str, bpy.types.Object]:
     rp.assign(tee, rp.make_material(f"{prefix} mint", A_MINT_HEX, texture=detail, roughness=0.85))
     # The sleeves are their own pattern pieces, out past the shoulders.
     paint_islands(tee, rp.make_material(f"{prefix} lavender", A_LAVENDER_HEX, texture=detail, roughness=0.85), lambda middle: abs(middle.x) > head.shoulder_reach)
-    rp.assign(skirt, rp.make_material(f"{prefix} mint skirt", A_MINT_HEX, roughness=0.85, double_sided=True))
+    rp.assign(skirt, rp.make_material(f"{prefix} mint dark", A_MINT_DARK_HEX, roughness=0.85, double_sided=True))
     sun, plum = rp.make_material(f"{prefix} sun", A_SUN_HEX, roughness=0.8), rp.make_material(f"{prefix} plum", A_PLUM_HEX, roughness=0.8)
     rp.assign(ties, sun)
     rp.assign(sash, sun)
@@ -549,6 +531,71 @@ def take_in(jacket: bpy.types.Object, rig: bpy.types.Object, amount: float) -> N
         vertex.co.x *= 1.0 - amount * fitted * (1.0 - share)
 
 
+def crop(jacket: bpy.types.Object, rig: bpy.types.Object, hem: float) -> None:
+    """Shortens a jacket's body to a hem at a height, leaving its sleeves whole.
+
+    The pack's jacket reaches an adult's hips, which on a child is where the
+    hands hang.
+    """
+    arms = {group.index for group in jacket.vertex_groups if group.name in rig.data.bones and group.name.startswith(rp.ARM_GROUPS)}
+    mesh = bmesh.new()
+    mesh.from_mesh(jacket.data)
+    deform = mesh.verts.layers.deform.verify()
+
+    def on_body(face) -> bool:
+        return all(sum(weight for group, weight in vertex[deform].items() if group in arms) < 0.5 for vertex in face.verts)
+
+    body = [face for face in mesh.faces if on_body(face)]
+    geometry = set(body)
+    for face in body:
+        geometry.update(face.edges)
+        geometry.update(face.verts)
+    bmesh.ops.bisect_plane(mesh, geom=list(geometry), plane_co=Vector((0.0, 0.0, hem)), plane_no=Vector((0.0, 0.0, 1.0)))
+    below = [face for face in mesh.faces if face.calc_center_median().z < hem and on_body(face)]
+    bmesh.ops.delete(mesh, geom=below, context="FACES")
+    mesh.to_mesh(jacket.data)
+    mesh.free()
+    jacket.data.update()
+
+
+def fit_sleeves(jacket: bpy.types.Object, body: bpy.types.Object, rig: bpy.types.Object, slim: float) -> None:
+    """Fits a jacket's sleeves to a child's arms: slimmer by slim of their width, and ending at the wrists.
+
+    The pack's sleeves are an adult's, wide and long enough to swallow a
+    child's hands. Each is drawn in toward the arm it covers and cut off just
+    past where the hand's skin begins, so the whole hand shows.
+    """
+    bones = rig.data.bones
+    hands = rp.weight_share(body, rig, ("hand", "index", "middle", "ring", "pinky", "thumb"))
+    for side, sign in (("l", 1.0), ("r", -1.0)):
+        # Measured for each sleeve in turn: cutting the first renumbers the jacket's vertices.
+        sleeve = rp.weight_share(jacket, rig, rp.ARM_GROUPS)
+        joints = [bones[f"upperarm_{side}"].head_local, bones[f"lowerarm_{side}"].head_local, bones[f"hand_{side}"].head_local]
+        for vertex, share in zip(jacket.data.vertices, sleeve):
+            if share <= 0.0 or vertex.co.x * sign <= 0.0:
+                continue
+            # The nearest point of the arm's axis, from the shoulder to the wrist.
+            nearest = None
+            for start, end in zip(joints, joints[1:]):
+                along = (end - start).normalized()
+                reach = min(max((vertex.co - start).dot(along), 0.0), (end - start).length)
+                point = start + along * reach
+                if nearest is None or (vertex.co - point).length < (vertex.co - nearest).length:
+                    nearest = point
+            vertex.co = nearest + (vertex.co - nearest) * (1.0 - slim * share)
+
+        elbow, wrist = joints[1], joints[2]
+        forearm = (wrist - elbow).normalized()
+        skin = min(
+            (vertex.co - elbow).dot(forearm)
+            for vertex, share in zip(body.data.vertices, hands) if share > 0.5 and vertex.co.x * sign > 0.0
+        )
+        cuff = elbow + forearm * (skin + 0.008)
+        if any((vertex.co - cuff).dot(forearm) > 0.0 for vertex, share in zip(jacket.data.vertices, sleeve) if share < 0.2):
+            raise SystemExit("Cutting the jacket's sleeve at the wrist would cut into its body")
+        rp.bisect(jacket, tuple(cuff), tuple(-forearm))
+
+
 def build_friend_b(mpfb: dict) -> dict[str, bpy.types.Object]:
     prefix = "friend_b"
     body = rp.build_body(mpfb, B_MACROS, B_MORPHS)
@@ -568,7 +615,13 @@ def build_friend_b(mpfb: dict) -> dict[str, bpy.types.Object]:
     trousers = min(pieces, key=lambda obj: rp.world_z_range(obj)[0])
     jacket = max(pieces, key=lambda obj: max(vertex.co.x for vertex in obj.data.vertices))
     shirt, collar = sorted((obj for obj in pieces if obj not in (trousers, jacket)), key=lambda obj: rp.world_z_range(obj)[0])
+    # Cut for a child: hip length, so the hem is above the hands and still over
+    # the top of the trousers; closer at the waist; sleeves that end at the wrists.
+    hem = rp.world_z_range(trousers)[1] - 0.035
+    crop(jacket, rig, hem)
+    rp.bisect(shirt, (0.0, 0.0, hem + 0.004), (0.0, 0.0, 1.0))
     take_in(jacket, rig, 0.22)
+    fit_sleeves(jacket, body, rig, 0.3)
 
     shoes, socks = split_footwear(footwear, prefix)
     head = rp.measure_head(rig, body, face["eyes"], face["brows"], jacket)
@@ -577,8 +630,7 @@ def build_friend_b(mpfb: dict) -> dict[str, bpy.types.Object]:
     attach(hair, rig, f"{prefix}_hair")
     clip = hair_clip(hair, head, rig, f"{prefix}_hair_clip")
 
-    rp.keep_vertices(body, lambda vertex, deform: vertex.co.z > knee)
-    thin_hands(body, rig, 0.34)
+    body = rp.lighten_body(body, head, knee)
     rp.simplify(shoes, 0.5)
 
     parts = {
@@ -598,8 +650,7 @@ def build_friend_b(mpfb: dict) -> dict[str, bpy.types.Object]:
         rp.strip_modifiers(obj)
 
     rp.assign(body, rp.make_material(f"{prefix} skin", B_SKIN_HEX, texture=rp.skin_texture(mpfb, body, None, source=SKIN_B, name=f"{prefix}-skin"), roughness=0.62))
-    # The pack's green iris is vivid; his are a quieter grey-green.
-    paint_face(mpfb, face, prefix, eyes=EYES_B, iris=(0.72, 0.7, 0.62), brow_hex="#1b2130")
+    paint_face(mpfb, face, prefix, iris=(0.62, 0.66, 0.62), brow_hex="#1b2130")  # A soft hazel brown.
     rp.assign(hair, rp.make_material(
         f"{prefix} hair", "#ffffff", roughness=0.8, alpha="CLIP", double_sided=True,
         texture=rp.hair_texture(mpfb, HAIR_B, f"{prefix}-hair", tint_hex=B_HAIR_HEX),
@@ -627,17 +678,11 @@ def build_friend_b(mpfb: dict) -> dict[str, bpy.types.Object]:
 
 @dataclass(frozen=True)
 class Stance:
-    """How a friend stands: where each arm points, and how they hold their feet and head."""
+    """What is a friend's own about how they stand. The arms hang as the realistic player's do."""
 
-    # Directions the upper arm and forearm point, per side, with the arms at rest.
-    upper_arm: dict[str, tuple[float, float, float]]
-    forearm: dict[str, tuple[float, float, float]]
-    # A forearm lifted from that rest, per side, for an arm held bent.
-    raised: dict[str, tuple[float, float, float]]
     # How far forward of its rest each ankle stands, per side, in meters.
     step: dict[str, float]
-    # Degrees the head is held nodded forward and tilted toward the left shoulder.
-    nod: float
+    # Degrees the head is held tilted toward the left shoulder.
     tilt: float
 
 
@@ -662,28 +707,10 @@ def plant_legs(rig: bpy.types.Object, legs: dict[str, rp.Leg], *, sway: float, d
 
 
 def stand(rig: bpy.types.Object, meshes: list[bpy.types.Object], stance: Stance) -> None:
-    """Turns MakeHuman's A-pose into the friend's own stand and makes that the rest pose."""
-    bones = rig.pose.bones
-    # First the arms hang, held just clear of the body, and the feet come a little closer.
-    for side, sign in (("l", 1.0), ("r", -1.0)):
-        upper = rp.aim(bones[f"upperarm_{side}"], stance.upper_arm[side])
-        rp.aim(bones[f"lowerarm_{side}"], stance.forearm[side], upper)
-        rp.turn(bones[f"thigh_{side}"], ("Y", sign * 3.0))
-        rp.turn(bones[f"foot_{side}"], ("Y", sign * -3.0))
-    rp.apply_pose_as_rest(rig, meshes)
-
-    # With the arms down, armature Y is the axis the fingers curl around.
-    for side, sign in (("l", 1.0), ("r", -1.0)):
-        for finger in rp.FINGERS:
-            for joint, curl in (("01", 16.0), ("02", 20.0), ("03", 12.0)):
-                rp.turn(bones[f"{finger}_{joint}_{side}"], ("Y", sign * curl))
-    rp.apply_pose_as_rest(rig, meshes)
-
-    # Then what is the friend's own: a forearm held up, a foot forward, the head's set.
-    for side, direction in stance.raised.items():
-        rp.aim(bones[f"lowerarm_{side}"], direction)
+    """Gives the friend the realistic player's relaxed stand, then their own feet and tilt of the head."""
+    rp.relax_rest_pose(rig, meshes)
     plant_legs(rig, {side: rp.measure_leg(rig, side) for side in ("l", "r")}, sway=0.0, drop=0.0, step=stance.step)
-    rp.turn(bones["head"], ("X", stance.nod), ("Y", stance.tilt))
+    rp.turn(rig.pose.bones["head"], ("Y", stance.tilt))
     rp.apply_pose_as_rest(rig, meshes)
 
 
@@ -771,8 +798,9 @@ class Friend:
     prefix: str  # What every node in the file is named after.
     label: str
     build: Callable[[dict], dict[str, bpy.types.Object]]
-    # How tall the friend stands in the playroom, in meters. Like the player,
-    # each is built at a real child's height and enlarged as a whole.
+    # How tall the friend stands in the playroom, in meters, to the crown of the
+    # head; hair adds to it. Like the player, each is built at a real child's
+    # height and enlarged as a whole.
     height: float
     stance: Stance
     idle: Idle
@@ -789,22 +817,14 @@ FRIEND_A = Friend(
     prefix="friend_a",
     label="Friend A",
     build=build_friend_a,
-    height=1.34,
-    # Open and listening: her arms hang a little away from the dress, and her
-    # head is bowed and tilted.
-    stance=Stance(
-        upper_arm={"l": (0.5, 0.03, -1.0), "r": (-0.5, 0.03, -1.0)},
-        forearm={"l": (0.19, -0.22, -1.0), "r": (-0.19, -0.22, -1.0)},
-        raised={},
-        step={},
-        nod=4.0,
-        tilt=3.5,
-    ),
-    # Quiet and a little downcast: slow breaths and barely a glance around.
+    height=1.36,
+    # She stands square, her head a little to one side.
+    stance=Stance(step={}, tilt=2.5),
+    # Quiet: slow breaths and barely a glance around.
     idle=Idle(frames=120, breaths=2, sway=0.004, dip=0.002, chest=0.8, look=2.5, arms=1.2),
     top="dress",
     below=("skirt", "sash", "panel", "leggings"),
-    max_triangles=24_000,
+    max_triangles=26_000,
     max_bytes=1_500_000,
 )
 
@@ -813,17 +833,9 @@ FRIEND_B = Friend(
     prefix="friend_b",
     label="Friend B",
     build=build_friend_b,
-    height=1.4,
-    # Restless: his right forearm is up in front of his jacket and his right
-    # foot is ahead of the left, as on the cartoon Friend B.
-    stance=Stance(
-        upper_arm={"l": (0.62, 0.03, -1.0), "r": (-0.62, 0.06, -1.0)},
-        forearm={"l": (0.3, -0.2, -1.0), "r": (-0.3, -0.2, -1.0)},
-        raised={"r": (-0.16, -0.75, -1.0)},
-        step={"r": 0.03, "l": -0.008},
-        nod=-2.0,
-        tilt=-2.5,
-    ),
+    height=1.38,
+    # His right foot is ahead of the left, as on the cartoon Friend B.
+    stance=Stance(step={"r": 0.03, "l": -0.008}, tilt=-2.0),
     # He cannot keep still: quicker, deeper breaths, shifting his weight, looking about.
     idle=Idle(frames=90, breaths=2, sway=0.008, dip=0.004, chest=1.1, look=7.0, arms=2.2),
     top="jacket",
@@ -891,17 +903,20 @@ def validate_export(friend: Friend, nodes: list[str]) -> None:
     points = [obj.matrix_world @ vertex.co for obj in meshes for vertex in obj.data.vertices]
     low = min(point.z for point in points)  # glTF Y-up returns to Blender Z-up on import.
     tall = max(point.z for point in points) - low
+    body = next(obj for obj in meshes if obj.name == f"{friend.prefix}_body")
+    crown = max((body.matrix_world @ vertex.co).z for vertex in body.data.vertices) - low
     center_x = (min(point.x for point in points) + max(point.x for point in points)) / 2
     triangles = sum(len(polygon.vertices) - 2 for obj in meshes for polygon in obj.data.polygons)
     if abs(low) > 0.006:
         raise RuntimeError(f"{path.name}: ground is z={low:.5f} m after import, expected 0")
-    if abs(tall - friend.height) > 0.01:
-        raise RuntimeError(f"{path.name}: unexpected height {tall:.4f} m")
+    # Hair may stand a little above the crown.
+    if abs(crown - friend.height) > 0.01 or tall > friend.height + 0.08:
+        raise RuntimeError(f"{path.name}: unexpected height {crown:.4f} m to the crown, {tall:.4f} m in all")
     if abs(center_x) > 0.03:
         raise RuntimeError(f"{path.name}: not centered between the feet (x={center_x:.4f})")
     if triangles > friend.max_triangles or size > friend.max_bytes:
         raise RuntimeError(f"{path.name}: {triangles} triangles and {size} bytes exceed the budget")
-    print(f"PASS {path.name} {size} bytes | height={tall:.3f} m | triangles={triangles} | meshes={len(meshes)} | clips={sorted(clips)}")
+    print(f"PASS {path.name} {size} bytes | crown={crown:.3f} m, {tall:.3f} m with hair | triangles={triangles} | meshes={len(meshes)} | clips={sorted(clips)}")
 
 
 def main() -> None:
@@ -940,9 +955,9 @@ def main() -> None:
             raise RuntimeError(f"One of {friend.label}'s arms comes within {rp.MIN_CLEARANCE * 1000:.0f} mm of the body")
         # Everything above is measured at the child's natural height. Only now
         # is the friend enlarged to stand with the rest of the cast.
-        factor = friend.height / max(rp.world_z_range(obj)[1] for obj in meshes)
+        factor = friend.height / rp.world_z_range(parts[f"{friend.prefix}_body"])[1]
         rp.enlarge(rig, meshes, factor)
-        print(f"{friend.label}: enlarged {factor:.3f} times to {friend.height} m")
+        print(f"{friend.label}: enlarged {factor:.3f} times to stand {friend.height} m to the crown")
         rp.export_model(rig, meshes, OUTPUT_DIR / f"{friend.key}.glb")
 
     if len(friends) == len(FRIENDS):

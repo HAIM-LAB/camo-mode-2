@@ -1071,6 +1071,30 @@ def add_friend_legs(prefix: str, shoe: bpy.types.Material, sole: bpy.types.Mater
             shade_smooth(bpy.data.objects[f"{prefix}_leg_{side}"], sharp_caps=True)
 
 
+# The cartoon player's relaxed arm, which the friends share: from the shoulder
+# out and down to the wrist, and the mitt beyond it, on the +X side.
+ARM_SHOULDER, ARM_WRIST, ARM_HAND = Vector((0.135, 0.0, 0.565)), Vector((0.312, -0.012, 0.455)), Vector((0.34, -0.014, 0.436))
+
+
+def add_friend_arms(prefix: str, sleeve: bpy.types.Material, skin: bpy.types.Material, *, sleeve_share: float = 1.0) -> None:
+    """Both arms under their shoulder pivots, held as the player holds its own.
+
+    sleeve_share is how far down the arm the sleeve reaches: below 1 it is a
+    short sleeve over a bare forearm.
+    """
+    for side, sign in (("L", -1.0), ("R", 1.0)):
+        mirror = Vector((sign, 1.0, 1.0))
+        shoulder, wrist, hand = ARM_SHOULDER * mirror, ARM_WRIST * mirror, ARM_HAND * mirror
+        cuff = shoulder.lerp(wrist, sleeve_share)
+        with pivot(f"{prefix}_pivot_arm_{side}", tuple(shoulder)):
+            add_segment(f"{prefix}_sleeve_{side}", tuple(shoulder), tuple(cuff), 0.06, sleeve, vertices=12)
+            shade_smooth(bpy.data.objects[f"{prefix}_sleeve_{side}"], sharp_caps=False)
+            if sleeve_share < 1.0:
+                add_segment(f"{prefix}_forearm_{side}", tuple(cuff), tuple(wrist), 0.047, skin, vertices=12)
+                shade_smooth(bpy.data.objects[f"{prefix}_forearm_{side}"], sharp_caps=False)
+            add_ico(f"{prefix}_hand_{side}", tuple(hand), (0.066, 0.06, 0.066), skin, smooth=True)
+
+
 def add_friend_face(
     prefix: str,
     skin: bpy.types.Material,
@@ -1117,15 +1141,15 @@ def add_friend_hair(name: str, forehead: float, nape: float, mat: bpy.types.Mate
 
 
 def build_friend_a() -> None:
-    """Friend A in the cartoon style: twin puffs, a mint dress, and an open, listening stance."""
+    """Friend A in the cartoon style: twin puffs tied in yellow and a mint dress with short lavender sleeves."""
     prefix = "friend_a"
     root = begin_asset(
         FRIEND_A_KEY,
         "Friend A (cartoon)",
-        "Round-headed child with twin puffs tied in yellow, a mint dress with lavender sleeves, and open arms.",
+        "Round-headed child with twin puffs tied in yellow and a mint dress with short lavender sleeves.",
     )
     root["height_m"] = 1.27
-    root["pose"] = "open and curious; an idle clip animates the pivots"
+    root["pose"] = "relaxed stand, as the player's; an idle clip animates the pivots"
 
     skin, skin_light, hair = MATERIALS["A Skin"], MATERIALS["A Skin Light"], MATERIALS["A Hair"]
     mint, mint_dark = MATERIALS["A Mint"], MATERIALS["A Mint Dark"]
@@ -1139,19 +1163,12 @@ def build_friend_a() -> None:
         add_garment(f"{prefix}_dress", dress, mint)
         add_garment_band(f"{prefix}_dress_hem", dress, 0.209, 0.022, mint_dark)
         add_garment_band(f"{prefix}_dress_collar", dress, 0.622, 0.03, lavender)
-        add_garment_band(f"{prefix}_dress_sash", dress, 0.482, 0.02, sun, tall=1.5)
-        add_garment_patch(f"{prefix}_dress_panel", dress, 0.0, 0.345, 0.062, 0.072, plum, taper=-0.12)
+        # The sash sits low enough to leave the forearms a clear gap.
+        add_garment_band(f"{prefix}_dress_sash", dress, 0.405, 0.017, sun, tall=1.5)
+        add_garment_patch(f"{prefix}_dress_panel", dress, 0.0, 0.3, 0.062, 0.056, plum, taper=-0.12)
 
-        # Short sleeves over bare forearms, held a little higher and further
-        # forward than the player's: an open, listening stance.
-        for side, sign in (("L", -1.0), ("R", 1.0)):
-            with pivot(f"{prefix}_pivot_arm_{side}", (sign * 0.135, 0.0, 0.565)):
-                shoulder, cuff, wrist = (sign * 0.135, 0.0, 0.565), (sign * 0.242, -0.016, 0.522), (sign * 0.332, -0.03, 0.486)
-                add_segment(f"{prefix}_sleeve_{side}", shoulder, cuff, 0.066, lavender, vertices=12)
-                add_segment(f"{prefix}_forearm_{side}", cuff, wrist, 0.047, skin, vertices=12)
-                for name in (f"{prefix}_sleeve_{side}", f"{prefix}_forearm_{side}"):
-                    shade_smooth(bpy.data.objects[name], sharp_caps=False)
-                add_ico(f"{prefix}_hand_{side}", (sign * 0.358, -0.034, 0.474), (0.064, 0.058, 0.064), skin, smooth=True)
+        # Sleeves to the elbow over bare forearms.
+        add_friend_arms(prefix, lavender, skin, sleeve_share=0.58)
 
         with pivot(f"{prefix}_pivot_head", (0.0, 0.0, 0.62)):
             add_friend_face(
@@ -1174,15 +1191,15 @@ def build_friend_a() -> None:
 
 
 def build_friend_b() -> None:
-    """Friend B in the cartoon style: swept navy hair, a rust jacket over a sky shirt, one arm across his front."""
+    """Friend B in the cartoon style: swept navy hair under a lime clip and a rust jacket over a sky shirt."""
     prefix = "friend_b"
     root = begin_asset(
         FRIEND_B_KEY,
         "Friend B (cartoon)",
-        "Round-headed child with swept navy hair and a lime clip, a rust jacket open over a sky shirt, and an asymmetric stance.",
+        "Round-headed child with swept navy hair and a lime clip, and a rust jacket open over a sky shirt.",
     )
     root["height_m"] = 1.15
-    root["pose"] = "left arm held across the jacket, left foot forward; an idle clip animates the pivots"
+    root["pose"] = "relaxed stand, as the player's, with one foot a little forward; an idle clip animates the pivots"
 
     skin, skin_light, hair = MATERIALS["B Skin"], MATERIALS["B Skin Light"], MATERIALS["B Hair"]
     rust, rust_dark = MATERIALS["B Rust"], MATERIALS["B Rust Dark"]
@@ -1199,20 +1216,7 @@ def build_friend_b() -> None:
         # The jacket hangs open over the shirt, wider at the collar than at the hem.
         add_garment_patch(f"{prefix}_shirt", jacket, 0.0, 0.447, 0.062, 0.156, sky, corner=7.0, taper=0.3)
 
-        # The right arm rests at his side.
-        with pivot(f"{prefix}_pivot_arm_R", (0.135, 0.0, 0.565)):
-            add_segment(f"{prefix}_sleeve_R", (0.135, 0.0, 0.565), (0.316, -0.012, 0.452), 0.06, rust, vertices=12)
-            shade_smooth(bpy.data.objects[f"{prefix}_sleeve_R"], sharp_caps=False)
-            add_ico(f"{prefix}_hand_R", (0.343, -0.014, 0.433), (0.066, 0.06, 0.066), skin, smooth=True)
-        # The left bends at the elbow and comes across in front of the jacket.
-        with pivot(f"{prefix}_pivot_arm_L", (-0.135, 0.0, 0.565)):
-            shoulder, elbow, wrist = (-0.135, 0.0, 0.565), (-0.292, -0.06, 0.468), (-0.158, -0.262, 0.452)
-            add_segment(f"{prefix}_sleeve_L", shoulder, elbow, 0.06, rust, vertices=12)
-            add_ico(f"{prefix}_elbow_L", elbow, (0.06, 0.06, 0.06), rust, smooth=True)
-            add_segment(f"{prefix}_forearm_L", elbow, wrist, 0.056, rust, vertices=12)
-            for name in (f"{prefix}_sleeve_L", f"{prefix}_forearm_L"):
-                shade_smooth(bpy.data.objects[name], sharp_caps=False)
-            add_ico(f"{prefix}_hand_L", (-0.128, -0.288, 0.45), (0.066, 0.06, 0.066), skin, smooth=True)
+        add_friend_arms(prefix, rust, skin)
 
         with pivot(f"{prefix}_pivot_head", (0.0, 0.0, 0.62)):
             add_friend_face(
@@ -1250,13 +1254,13 @@ def friend_idle(*, tempo: int, breath: float, sway: float, look: float, nod: flo
     return pose
 
 
-# Friend A is quiet and a little downcast: slow breaths, her head bowed and tilted.
+# Friend A is quiet: slow breaths, her head a little to one side.
 FRIEND_A_CLIPS: tuple[Clip, ...] = (
-    ("idle", IDLE_FRAMES, 3, friend_idle(tempo=2, breath=0.0035, sway=0.7, look=2.5, nod=3.5, tilt=3.0, arms=(2.5, 2.5))),
+    ("idle", IDLE_FRAMES, 3, friend_idle(tempo=2, breath=0.0035, sway=0.7, look=2.5, nod=1.0, tilt=2.5, arms=(2.5, 2.5))),
 )
 # Friend B cannot keep still: quicker breaths, rocking, his head turning to look about.
 FRIEND_B_CLIPS: tuple[Clip, ...] = (
-    ("idle", IDLE_FRAMES, 3, friend_idle(tempo=3, breath=0.0055, sway=1.6, look=7.0, nod=-1.5, tilt=-2.0, arms=(1.2, 3.5))),
+    ("idle", IDLE_FRAMES, 3, friend_idle(tempo=3, breath=0.0055, sway=1.6, look=7.0, nod=-1.0, tilt=-2.0, arms=(3.2, 3.2))),
 )
 
 FRIEND_A_ARMS = Arms(
@@ -1273,9 +1277,8 @@ FRIEND_A_ARMS = Arms(
 )
 FRIEND_B_ARMS = Arms(
     key=FRIEND_B_KEY,
-    hands=("friend_b_hand_L", "friend_b_hand_R", "friend_b_elbow_L"),
-    # The bent arm's forearm is free along its whole length.
-    tubes=(("friend_b_sleeve_L", 0.5), ("friend_b_sleeve_R", 0.5), ("friend_b_forearm_L", 0.0)),
+    hands=("friend_b_hand_L", "friend_b_hand_R"),
+    tubes=(("friend_b_sleeve_L", 0.5), ("friend_b_sleeve_R", 0.5)),
     body=(
         "friend_b_jacket", "friend_b_jacket_hem", "friend_b_shirt",
         "friend_b_leg_L", "friend_b_leg_R", "friend_b_shoe_L", "friend_b_shoe_R",

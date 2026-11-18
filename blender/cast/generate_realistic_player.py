@@ -1046,8 +1046,8 @@ def split_ears(body: bpy.types.Object) -> bpy.types.Object:
     return ears
 
 
-def lighten_body(body: bpy.types.Object, head: Head, knee: float) -> bpy.types.Object:
-    """Drops skin no look ever shows and thins the hands, which the camera never studies."""
+def lighten_body(body: bpy.types.Object, head: Head, knee: float, detail: float = 0.34) -> bpy.types.Object:
+    """Drops skin no look ever shows and thins the hands, which the camera never studies, to detail of their faces."""
     # Rings of ankle skin are left between the shoes' and the trousers' masks,
     # under the socks. The hands are well above the knees while the arms are raised.
     keep_vertices(body, lambda vertex, layer: vertex.co.z > knee)
@@ -1055,7 +1055,7 @@ def lighten_body(body: bpy.types.Object, head: Head, knee: float) -> bpy.types.O
     # their own and the face and neck keep every vertex.
     hands = duplicate(body, "hands")
     keep_vertices(hands, lambda vertex, layer: vertex.co.z < head.shoulders)
-    simplify(hands, 0.34)
+    simplify(hands, detail)
     keep_vertices(body, lambda vertex, layer: vertex.co.z >= head.shoulders)
     return join([body, hands], body.name)
 
