@@ -3,12 +3,14 @@ import {
   Color,
   Fog,
   Group,
+  Object3D,
   PerspectiveCamera,
   Scene,
   Vector3,
   WebGLRenderer,
 } from 'three';
 import { AssetLoadSummary, OptionalAssetLoader, createVisualTarget } from './assets';
+import { CastMotion, IdleMotion } from './cast-motion';
 import {
   AssetId,
   PLAYER_SPAWN,
@@ -45,8 +47,11 @@ import { createPlayroomLights, createRenderer } from './render';
 interface SceneEntity extends NearbyEntity {
   root: Group;
   visual: Group;
+  /** Meters above the floor the name label floats; a loaded friend's follows its height. */
   labelHeight: number;
   worldLabel: string;
+  /** A character's idle animation; toys have none. */
+  idle?: IdleMotion;
 }
 
 interface LabelBinding {
@@ -67,6 +72,8 @@ export interface DemoSnapshot {
   look: PlayerLook;
   /** What the player model is doing: its clip, or `stand-in` before the GLB binds. */
   playerMotion: AvatarMotion;
+  /** What each other character is doing, by entity id: its `idle` clip, or `still`. */
+  castMotion: Record<string, CastMotion>;
 }
 
 declare global {
@@ -79,6 +86,8 @@ declare global {
 
 const CAMERA_OFFSET = new Vector3(0, 4.8, 6.4);
 const CAMERA_LOOK_OFFSET = new Vector3(0, 0.78, -0.34);
+// How far above a friend's head their name label floats, in meters.
+const FRIEND_LABEL_GAP = 0.22;
 
 function requiredElement<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);
@@ -93,7 +102,7 @@ function wrapEntity(
   position: Vector3,
   fallback: Group,
   labelHeight: number,
-  options: { worldLabel?: string; location?: NearbyEntity['location'] } = {},
+  options: { worldLabel?: string; location?: NearbyEntity['location']; idle?: IdleMotion } = {},
 ): SceneEntity {
   const root = new Group();
   root.name = id;
@@ -110,6 +119,7 @@ function wrapEntity(
     labelHeight,
     worldLabel: options.worldLabel ?? label,
     location: options.location,
+    idle: options.idle,
   };
 }
 
@@ -154,7 +164,8 @@ export class CamoDemoApp {
     this.player = new PlayerController(PLAYER_SPAWN, this.avatar.moveSpeed);
 
     this.entities = [
-      wrapEntity('camo', 'Camo', 'camo', SCENE_ANCHORS.camo, createCamoFallback(), 1.35),
+      // Each character starts at a different point of their idle loop.
+      wrapEntity('camo', 'Camo', 'camo', SCENE_ANCHORS.camo, createCamoFallback(), 1.35, { idle: new IdleMotion(2.1) }),
       wrapEntity(
         'friend-a',
         'Friend A',
@@ -162,7 +173,7 @@ export class CamoDemoApp {
         SCENE_ANCHORS.friendA,
         createFriendFallback(fallbackColors.friendA, fallbackColors.friendAAccent, 'friend-a'),
         1.62,
-        { worldLabel: 'INSIDE • FRIEND A', location: 'indoors' },
+        { worldLabel: 'INSIDE • FRIEND A', location: 'indoors', idle: new IdleMotion(1.3) },
       ),
       wrapEntity(
         'friend-b',
@@ -171,7 +182,7 @@ export class CamoDemoApp {
         SCENE_ANCHORS.friendB,
         createFriendFallback(fallbackColors.friendB, fallbackColors.friendBAccent, 'friend-b'),
         1.62,
-        { worldLabel: 'PATIO • FRIEND B', location: 'patio' },
+        { worldLabel: 'PATIO • FRIEND B', location: 'patio', idle: new IdleMotion(0.4) },
       ),
       wrapEntity('ball', 'Ball', 'ball', SCENE_ANCHORS.ball, createBallFallback(), 0.78),
       wrapEntity('block', 'Building block', 'block', SCENE_ANCHORS.block, createBlockFallback(), 0.88),
@@ -309,6 +320,7 @@ export class CamoDemoApp {
     this.updatePrompt();
     this.updateLabels();
     this.animateFallbacks(delta);
+    for (const entity of this.entities) entity.idle?.update(delta);
     this.renderer.render(this.scene, this.camera);
 
     if (!this.ready) {
@@ -338,7 +350,8 @@ export class CamoDemoApp {
     for (const entity of this.entities) {
       if (entity.kind === 'ball' && !entity.carried) entity.visual.rotation.y += delta * 0.5;
       if (entity.kind === 'camo') {
-        entity.visual.position.y = Math.sin(this.elapsed * 2.1) * 0.018;
+        // The stand-in bobs; a loaded Camo breathes through its own idle clip instead.
+        entity.visual.position.y = entity.idle?.motion === 'idle' ? 0 : Math.sin(this.elapsed * 2.1) * 0.018;
       }
     }
   }
@@ -400,7 +413,7 @@ export class CamoDemoApp {
         distance < labelRange;
       element.classList.toggle('world-label--visible', visible);
       if (visible) {
-        element.style.transform = `translate(-50%, -50%) translate(${(projected.x * 0.5 + 0.5) * width}px, ${(-projected.y * 0.5 + 0.5) * height}px)`;
+        element.style.translate = `${(projected.x * 0.5 + 0.5) * width}px ${(-projected.y * 0.5 + 0.5) * height}px`;
         element.style.setProperty('--label-depth', String(Math.max(0.76, 1.1 - distance * 0.045)));
       }
     }
@@ -453,8 +466,26 @@ export class CamoDemoApp {
       (summary) => {
         this.renderAssetStatus(summary);
       },
-      { player: this.avatar.prepare },
+      {
+        player: this.avatar.prepare,
+        camo: this.castPreparer('camo'),
+        friendA: this.castPreparer('friend-a', FRIEND_LABEL_GAP),
+        friendB: this.castPreparer('friend-b', FRIEND_LABEL_GAP),
+      },
     );
+  }
+
+  /**
+   * Binds a character's idle clip. With a label gap, their name label then
+   * floats that far above the loaded model's head.
+   */
+  private castPreparer(id: string, labelGap?: number): (model: Object3D) => void {
+    const entity = this.entityById(id);
+    return (model) => {
+      entity.idle?.prepare(model);
+      const height = entity.idle?.height;
+      if (height && labelGap !== undefined) entity.labelHeight = height + labelGap;
+    };
   }
 
   private renderAssetStatus(summary: AssetLoadSummary): void {
@@ -513,6 +544,9 @@ export class CamoDemoApp {
       dialogue: this.dialogue.snapshot(),
       look: this.look,
       playerMotion: this.avatar.motion,
+      castMotion: Object.fromEntries(
+        this.entities.flatMap((entity) => (entity.idle ? [[entity.id, entity.idle.motion]] : [])),
+      ),
     };
   }
 }

@@ -6,7 +6,7 @@ Shared integration contract:
 - Three.js/Vite, glTF binary (`.glb`), meters, Y-up, ground at y=0, forward +Z, asset origin centered at floor contact.
 - Indoor footprint: x=-6..6, z=-4.5..4.5. Player spawn `(-0.95,0,2.90)`.
 - Integrated anchors: Camo `(-1.52,0,1.72)`, Friend A `(3.42,0,1.42)`, Friend B `(2.62,0,-5.35)`, ball `(-0.15,0,0.78)`, block `(1.20,0,1.32)`.
-- Optional asset URLs: `/assets/camo/camo.glb`, `/assets/world/living-room.glb`, `/assets/cast/friend-a.glb`, `/assets/cast/friend-b.glb`, `/assets/cast/ball.glb`, `/assets/cast/block.glb`, and one player model per style: `/assets/cast/player-cartoon.glb` and `/assets/cast/player-realistic.glb`. Only the chosen style's player is requested.
+- Optional asset URLs: the room and the toys are `/assets/world/living-room.glb`, `/assets/cast/ball.glb`, and `/assets/cast/block.glb`. Every character has one model per style, `cartoon` and `realistic`: `/assets/cast/player-<style>.glb`, `/assets/cast/friend-a-<style>.glb`, `/assets/cast/friend-b-<style>.glb`, and `/assets/camo/camo-<style>.glb`. Only the chosen style's four are requested.
 - Character and prop loaders normalize scene placement but must not silently rescale contract-compliant files. The room preserves its authored world origin.
 
 ## Loader behavior
@@ -18,6 +18,33 @@ Character and prop bounds are centered in X/Z and moved to floor contact before 
 The living-room asset is anchored at world origin without bounds centering. Its shallow patio/backyard intentionally makes the full asset asymmetric in Z; centering aggregate bounds would incorrectly move the indoor floor and furniture. Friend B remains on that patio while player movement remains indoors. The nearest indoor doorway position is within the proximity radius, so it is the presentation/approach point for Friend B.
 
 The player and Camo start together on the rug, left of the coffee table; Friend A stands inside by the couch. Cast and props are parented to the exact integrated anchors above. Keep model-authored units in meters; make any artistic scale correction in the source lane rather than relying on application scaling.
+
+## The cast in each style
+
+The style the child picks draws the whole cast, not only the player: `CAST_ASSET_URLS` in `src/config.ts` maps each style to its player, Camo, Friend A, and Friend B, and the playroom requests that one set. The room and the toys are the same in both.
+
+Each character is built the way the matching player is:
+
+| Character | Cartoon | Realistic |
+| --- | --- | --- |
+| Player | `build_player()` in `blender/cast/generate_cast.py` | `blender/cast/generate_realistic_player.py` |
+| Friend A, Friend B | `build_friend_a()` and `build_friend_b()` in `generate_cast.py`, from the same kit and at the player's proportions | `blender/cast/generate_realistic_friends.py`, from the same CC0 sources as the player ([`third-party-assets.md`](third-party-assets.md)) |
+| Camo | `build_cartoon()` in `blender/camo/generate_camo.py`, from the same kit | `build_realistic()` in `generate_camo.py`: an original sculpted and painted chameleon |
+
+A character is the same individual in both styles. Keep these when regenerating one:
+
+- Friend A: twin puffs tied in yellow, a mint dress with short lavender sleeves, a yellow sash and a plum panel on it, lavender leggings, plum shoes.
+- Friend B: swept blue-black hair held by a lime clip, a rust jacket open over a sky shirt, a lime collar, navy trousers and shoes, one foot a little forward.
+- Camo: a plump green chameleon with a cream belly and muzzle, teal bars on its flanks and tail, a sunny crest, amber turret eyes, a curled tail, and the coral kerchief that marks it as the guide.
+
+What the application relies on:
+
+- Names: every node of a friend's model starts with `friend_a_` or `friend_b_`, and of Camo's with `camo_`. None starts with `player_`, which character customization repaints and hides by name.
+- Clips: each model carries one clip, `idle`, looping in place. `src/cast-motion.ts` plays it, each character starting at a different point of the loop. These characters stay where they stand, so there is no walk. A model without the clip still works: it stands still, and Camo's procedural stand-in bobs instead.
+- Poses: the friends stand as the matching player does, arms relaxed and clear of the body. The generators measure that gap through the idle and fail under 20 mm, and the realistic generators also fail if a planted foot moves.
+- Sizes: the cartoon friends stand 1.26 m and 1.15 m with their hair; the realistic ones 1.36 m and 1.38 m to the crown, beside the realistic player's 1.37 m. Camo is about 1.3 m long and 0.65 m tall in both. A friend's name label floats 0.22 m above the loaded model.
+
+`tests/cast-motion.test.ts` loads every one of these files and checks its clip, joints, height, and names; `tests/assets.test.ts` checks that every file a style asks for is shipped.
 
 ## Player models
 

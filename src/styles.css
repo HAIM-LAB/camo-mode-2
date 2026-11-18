@@ -925,6 +925,10 @@ body[data-dialogue='open'] .proximity {
   background: rgba(255, 252, 246, 0.88);
   box-shadow: 0 4px 10px rgba(39, 53, 68, 0.16);
   opacity: 0;
+  /* The app places the label with `translate`, which applies outside `scale`:
+     the label shrinks with distance about its own middle and stays on its anchor. */
+  transform: translate(-50%, -50%);
+  transform-origin: 0 0;
   scale: calc(var(--label-depth) * 0.9);
   transition: opacity 180ms ease, scale 180ms ease;
   white-space: nowrap;

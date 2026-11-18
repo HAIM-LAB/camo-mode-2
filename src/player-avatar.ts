@@ -138,7 +138,7 @@ export class PlayerAvatar {
  * bounds are not usable until its skeleton has rendered once, so they are not
  * asked.
  */
-function restHeight(model: Object3D): number {
+export function restHeight(model: Object3D): number {
   const bounds = new Box3();
   model.updateWorldMatrix(true, true);
   model.traverse((child) => {

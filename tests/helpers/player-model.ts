@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { Mesh, MeshStandardMaterial, Object3D } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { PLAYER_ASSET_URLS } from '../../src/config';
+import { CAST_ASSET_URLS, CastAssetId } from '../../src/config';
 import { PlayerStyleId } from '../../src/player-look';
 
 // GLTFLoader decodes embedded textures through browser image APIs. Node has
@@ -10,13 +10,18 @@ const scope = globalThis as Record<string, unknown>;
 scope.self ??= globalThis;
 scope.createImageBitmap ??= async () => ({ width: 1, height: 1, close: () => undefined });
 
-/** Loads a style's real GLB from public/, with its clips attached as the asset loader attaches them. */
-export async function loadPlayerModel(style: PlayerStyleId): Promise<Object3D> {
-  const bytes = readFileSync(new URL(`../../public${PLAYER_ASSET_URLS[style]}`, import.meta.url));
+/** Loads a character's real GLB for a style from public/, with its clips attached as the asset loader attaches them. */
+export async function loadCastModel(id: CastAssetId, style: PlayerStyleId): Promise<Object3D> {
+  const bytes = readFileSync(new URL(`../../public${CAST_ASSET_URLS[style][id]}`, import.meta.url));
   const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
   const gltf = await new GLTFLoader().parseAsync(buffer, '');
   gltf.scene.animations = gltf.animations;
   return gltf.scene;
+}
+
+/** Loads a style's real player GLB. */
+export function loadPlayerModel(style: PlayerStyleId): Promise<Object3D> {
+  return loadCastModel('player', style);
 }
 
 export function materialsByName(root: Object3D): Map<string, MeshStandardMaterial> {

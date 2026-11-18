@@ -10,8 +10,9 @@ Camo and the player together on the carpet left of the coffee table, Friend A
 inside beside the couch, Friend B on the patio through the doorway, and both
 pickup props on the rug.
 
-The dialogue captures below predate the two player styles and still show the
-earlier chunky player. The dialogue layer itself is unchanged;
+This frame and the dialogue captures below predate the cast's two styles and
+still show the earlier chunky characters; [`cast/`](cast/) shows the playroom
+as it is now, in each style. The dialogue layer itself is unchanged;
 [`menus/19-realistic-mock-dialogue.png`](menus/19-realistic-mock-dialogue.png)
 shows it with a current player.
 
@@ -102,6 +103,11 @@ close-ups are crops of the same page at twice the pixel density.
 - `41`–`44`: the same four in the playroom, under its camera, from the front,
   the side, and behind.
 
+The playroom frames in this set were captured before Camo and the friends had
+a model per style, so the Camo and friends in them are the earlier chunky
+ones. The player in them is current; [`cast/`](cast/) shows the cast as it is
+now.
+
 Both characters were reviewed for age-appropriateness in every combination:
 - one shared child body per style, with Boy and Girl differing only in hair;
 - everyday clothes that cover the torso, arms, and legs;
@@ -112,3 +118,21 @@ Both characters were reviewed for age-appropriateness in every combination:
   the realistic one;
 - on the realistic player, a young child's proportions and round face with a
   slight closed-mouth smile and relaxed eyes.
+
+---
+
+The frames below show the cast in each style, captured from the running app
+on the keyless mock brain, with the player stepped aside from the opening
+position so that Camo is in view.
+
+## [`cast/cartoon.png`](cast/cartoon.png)
+
+The Cartoon style: the cartoon player with Camo on the rug, Friend A by the
+couch, and Friend B on the patio, all drawn with the same kit. Each name label
+sits over its character.
+
+## [`cast/realistic.png`](cast/realistic.png)
+
+The Realistic style, from the same spot: the realistic player, the sculpted
+Camo, and both friends as children of the player's age and build. Only this
+style's four character models were requested.

@@ -259,10 +259,10 @@ CHILD_TARGETS = {
 }
 
 
-def build_body(mpfb: dict) -> bpy.types.Object:
+def build_body(mpfb: dict, macros: dict = CHILD_MACROS, morphs: dict = CHILD_TARGETS) -> bpy.types.Object:
     human, targets = mpfb["HumanService"], mpfb["TargetService"]
-    body = human.create_human(scale=0.1, macro_detail_dict=CHILD_MACROS)
-    for name, weight in CHILD_TARGETS.items():
+    body = human.create_human(scale=0.1, macro_detail_dict=macros)
+    for name, weight in morphs.items():
         path = targets.target_full_path(name)
         if not path:
             raise SystemExit(f"MPFB morph target {name} is missing")
@@ -350,16 +350,27 @@ def uv_coverage(mesh: bpy.types.Mesh, size: int, margin: int) -> np.ndarray:
     return covered
 
 
-def skin_texture(mpfb: dict, body: bpy.types.Object, ears: bpy.types.Object, size: int = 1024) -> Path:
+def skin_texture(
+    mpfb: dict,
+    body: bpy.types.Object,
+    ears: bpy.types.Object | None,
+    size: int = 1024,
+    *,
+    source: tuple[str, str, str] = SKIN,
+    name: str = "player-skin",
+) -> Path:
     """The skin as a neutral detail map: multiplied by a tone it gives that tone.
 
     Only the texels the visible skin uses are kept. Everything the clothes cover
-    is flattened, so no unclothed body texture ships in the file.
+    is flattened, so no unclothed body texture ships in the file. ears is the
+    ears' own mesh, on a model that keeps them apart from the body.
     """
-    subdir, fragment, filename = SKIN
+    subdir, fragment, filename = source
     pixels = load_pixels(asset_path(mpfb, subdir, fragment).parent / filename, size)
     linear = srgb_to_linear(pixels[..., :3])
-    used = uv_coverage(body.data, size, margin=4) | uv_coverage(ears.data, size, margin=4)
+    used = uv_coverage(body.data, size, margin=4)
+    if ears is not None:
+        used |= uv_coverage(ears.data, size, margin=4)
     # The typical skin value becomes white, so the tone the runtime multiplies
     # in is the tone the child sees; lips, creases, and brows stay relative to it.
     reference = np.percentile(linear[used], 75, axis=0)
@@ -367,7 +378,7 @@ def skin_texture(mpfb: dict, body: bpy.types.Object, ears: bpy.types.Object, siz
     neutral[~used] = 1.0
     pixels[..., :3] = linear_to_srgb(neutral)
     pixels[..., 3] = 1.0
-    return save_pixels("player-skin", pixels, alpha=False)
+    return save_pixels(name, pixels, alpha=False)
 
 
 def clothes_texture(mpfb: dict, top: bpy.types.Object, trousers: bpy.types.Object, size: int = 512) -> Path:
@@ -397,16 +408,27 @@ def clothes_texture(mpfb: dict, top: bpy.types.Object, trousers: bpy.types.Objec
     return save_pixels("player-clothes", pixels, alpha=False)
 
 
-def hair_texture(mpfb: dict, part: tuple[str, str, str], name: str, size: int = 512) -> Path:
-    """Strand detail in one shared hair color, keeping the pack's alpha."""
+def hair_texture(
+    mpfb: dict,
+    part: tuple[str, str, str],
+    name: str,
+    size: int = 512,
+    *,
+    tint_hex: str = HAIR_HEX,
+    filename: str | None = None,
+) -> Path:
+    """Strand detail in one hair color, keeping the pack's alpha.
+
+    filename is the hair's texture, for the one the pack does not name after the hair.
+    """
     subdir, fragment, _ = part
-    stem = Path(fragment).stem
-    pixels = load_pixels(asset_path(mpfb, subdir, fragment).parent / f"{stem}_diffuse.png", size)
+    filename = filename or f"{Path(fragment).stem}_diffuse.png"
+    pixels = load_pixels(asset_path(mpfb, subdir, fragment).parent / filename, size)
     strands = luminance(srgb_to_linear(pixels[..., :3]))
     opaque = pixels[..., 3] > 0.5
     level = np.median(strands[opaque])
     shade = np.clip(0.3 + 0.7 * strands / level, 0.0, 1.9)
-    tint = np.array(hex_rgba(HAIR_HEX)[:3], dtype=np.float32)
+    tint = np.array(hex_rgba(tint_hex)[:3], dtype=np.float32)
     pixels[..., :3] = linear_to_srgb(np.clip(shade[..., None] * tint, 0.0, 1.0))
     return save_pixels(name, pixels, alpha=True)
 
@@ -420,13 +442,13 @@ def tinted_alpha_texture(mpfb: dict, part: tuple[str, str, str], name: str, tint
     return save_pixels(name, pixels, alpha=True)
 
 
-def eye_texture(mpfb: dict, size: int = 256) -> Path:
-    subdir, fragment, filename = EYE_TEXTURE
+def eye_texture(mpfb: dict, size: int = 256, *, source: tuple[str, str, str] = EYE_TEXTURE, name: str = "player-eyes") -> Path:
+    subdir, fragment, filename = source
     pixels = load_pixels(asset_path(mpfb, subdir, fragment).parent / filename, size)
     # The pack's eye whites are grey; lifted a little so the eyes read from the game camera.
     pixels[..., :3] = np.clip(pixels[..., :3] * 1.15, 0.0, 1.0)
     pixels[..., 3] = 1.0
-    return save_pixels("player-eyes", pixels, alpha=False)
+    return save_pixels(name, pixels, alpha=False)
 
 
 # -----------------------------------------------------------------------------
@@ -1024,8 +1046,8 @@ def split_ears(body: bpy.types.Object) -> bpy.types.Object:
     return ears
 
 
-def lighten_body(body: bpy.types.Object, head: Head, knee: float) -> bpy.types.Object:
-    """Drops skin no look ever shows and thins the hands, which the camera never studies."""
+def lighten_body(body: bpy.types.Object, head: Head, knee: float, detail: float = 0.34) -> bpy.types.Object:
+    """Drops skin no look ever shows and thins the hands, which the camera never studies, to detail of their faces."""
     # Rings of ankle skin are left between the shoes' and the trousers' masks,
     # under the socks. The hands are well above the knees while the arms are raised.
     keep_vertices(body, lambda vertex, layer: vertex.co.z > knee)
@@ -1033,7 +1055,7 @@ def lighten_body(body: bpy.types.Object, head: Head, knee: float) -> bpy.types.O
     # their own and the face and neck keep every vertex.
     hands = duplicate(body, "hands")
     keep_vertices(hands, lambda vertex, layer: vertex.co.z < head.shoulders)
-    simplify(hands, 0.34)
+    simplify(hands, detail)
     keep_vertices(body, lambda vertex, layer: vertex.co.z >= head.shoulders)
     return join([body, hands], body.name)
 
@@ -1303,10 +1325,10 @@ class Leg:
     heel_behind: float  # From the ankle back to the heel.
 
 
-def measure_leg(rig: bpy.types.Object) -> Leg:
+def measure_leg(rig: bpy.types.Object, side: str = "l") -> Leg:
     bones = rig.data.bones
-    hip, knee, ankle = (bones[name].head_local for name in ("thigh_l", "calf_l", "foot_l"))
-    ball = bones["foot_l"].tail_local
+    hip, knee, ankle = (bones[f"{name}_{side}"].head_local for name in ("thigh", "calf", "foot"))
+    ball = bones[f"foot_{side}"].tail_local
 
     def lean(upper: Vector, lower: Vector) -> float:
         return math.atan2(upper.y - lower.y, upper.z - lower.z)  # Forward is -y.
@@ -1512,12 +1534,14 @@ class Clearance:
 
     The moving points are the skin of the hands and the cuffs and forearms of
     the sleeves. They are measured against the torso of the top and against
-    whichever bottoms a look shows, on the posed, skinned meshes.
+    whichever bottoms a look shows, on the posed, skinned meshes. body and top
+    name the parts that carry the skin and the sleeves.
     """
 
-    def __init__(self, rig: bpy.types.Object, player: dict[str, bpy.types.Object]) -> None:
+    def __init__(self, rig: bpy.types.Object, player: dict[str, bpy.types.Object], *, body: str = "player_body", top: str = "player_top") -> None:
         self.player = player
-        body, top = player["player_body"], player["player_top"]
+        self.body, self.top = body, top
+        body, top = player[body], player[top]
         self.hand_points = [index for index, share in enumerate(weight_share(body, rig, FOREARM_GROUPS)) if share > 0.5]
         self.sleeve_points = [index for index, share in enumerate(weight_share(top, rig, FOREARM_GROUPS)) if share > 0.5]
         arm = weight_share(top, rig, ARM_GROUPS)
@@ -1526,24 +1550,26 @@ class Clearance:
             if all(arm[index] < 0.2 for index in polygon.vertices)
         ]
 
-    def measure(self, look: str) -> tuple[float, str]:
+    def measure(self, bottoms: tuple[str, ...]) -> tuple[float, str]:
         """The smallest gap in meters in the current pose, and what it is between.
 
-        The gap is negative when something has sunk into the body.
+        bottoms names the parts the look shows below the top. The gap is
+        negative when something has sunk into the body.
         """
         dependency = bpy.context.evaluated_depsgraph_get()
 
         def posed(name: str) -> bpy.types.Mesh:
             return self.player[name].evaluated_get(dependency).data
 
-        top = posed("player_top")
+        top = posed(self.top)
         surfaces = {"the top": BVHTree.FromPolygons(
             [vertex.co.copy() for vertex in top.vertices],
             [tuple(top.polygons[index].vertices) for index in self.torso_faces],
         )}
-        for name in BODY_PARTS[look]:
-            surfaces[name.replace("player_", "the ").replace("_", " ")] = BVHTree.FromObject(self.player[name], dependency)
-        body = posed("player_body")
+        prefix = self.body.rsplit("_", 1)[0] + "_"
+        for name in bottoms:
+            surfaces[name.replace(prefix, "the ").replace("_", " ")] = BVHTree.FromObject(self.player[name], dependency)
+        body = posed(self.body)
         movers = {
             "a hand": [body.vertices[index].co for index in self.hand_points],
             "a forearm": [top.vertices[index].co for index in self.sleeve_points],
@@ -1571,9 +1597,9 @@ def check_clearance(rig: bpy.types.Object, player: dict[str, bpy.types.Object]) 
 
     def record(label: str) -> None:
         bpy.context.view_layer.update()
-        for look in BODY_PARTS:
+        for look, bottoms in BODY_PARTS.items():
             key = f"{label} in {look}"
-            gaps[key] = min(gaps.get(key, (math.inf, "")), clearance.measure(look))
+            gaps[key] = min(gaps.get(key, (math.inf, "")), clearance.measure(bottoms))
 
     record("standing")
     for clip, frames in (("idle", range(1, IDLE_FRAMES + 2, 6)), ("walk", range(1, WALK_FRAMES + 2))):
@@ -1634,14 +1660,18 @@ def enlarge(rig: bpy.types.Object, meshes: list[bpy.types.Object], factor: float
                     point.handle_right.y *= factor
 
 
-def export_player(rig: bpy.types.Object, meshes: list[bpy.types.Object], walk_speed: float) -> None:
-    # The file carries one fact of its own: the ground speed its walk clip is
-    # built for, which the game must move this player at. MPFB's own
-    # bookkeeping properties are dropped.
+def export_model(rig: bpy.types.Object, meshes: list[bpy.types.Object], path: Path, *, walk_speed: float | None = None) -> None:
+    """Writes a rigged model and its clips to a GLB.
+
+    A model that walks carries one fact of its own: the ground speed its walk
+    clip is built for, which the game must move it at. MPFB's own bookkeeping
+    properties are dropped.
+    """
     for obj in [rig, *meshes]:
         for name in list(obj.keys()):
             del obj[name]
-    rig["walk_speed"] = round(walk_speed, 3)
+    if walk_speed is not None:
+        rig["walk_speed"] = round(walk_speed, 3)
     bpy.context.scene.render.fps = FPS
     bpy.ops.object.select_all(action="DESELECT")
     rig.select_set(True)
@@ -1649,9 +1679,9 @@ def export_player(rig: bpy.types.Object, meshes: list[bpy.types.Object], walk_sp
         obj.hide_render = False
         obj.select_set(True)
     bpy.context.view_layer.objects.active = rig
-    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
     bpy.ops.export_scene.gltf(
-        filepath=str(OUTPUT_PATH),
+        filepath=str(path),
         export_format="GLB",
         use_selection=True,
         export_yup=True,
@@ -1876,7 +1906,7 @@ def main() -> None:
     factor = PLAYROOM_HEIGHT / hatted_height(meshes)
     enlarge(rig, meshes, factor)
     print(f"Enlarged {factor:.3f} times to {PLAYROOM_HEIGHT} m; its walk now covers {WALK_SPEED * factor:.2f} m/s")
-    export_player(rig, meshes, WALK_SPEED * factor)
+    export_model(rig, meshes, OUTPUT_PATH, walk_speed=WALK_SPEED * factor)
     validate_export()
 
     print(f"Model:   {OUTPUT_PATH.relative_to(REPO_ROOT)}")
