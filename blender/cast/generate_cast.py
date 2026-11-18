@@ -1462,9 +1462,11 @@ def create_preview_scene() -> None:
     camera_data = bpy.data.cameras.new("Lineup Camera")
     camera = bpy.data.objects.new("Lineup Camera", camera_data)
     studio.objects.link(camera)
-    camera.location = (-0.15, -8.1, 3.25)
+    # Centered on the lineup from the first label's left end to the last one's
+    # right end, and far enough back that both ends have a margin.
+    camera.location = (-0.5, -8.55, 3.39)
     camera_data.lens = 46
-    point_at(camera, (-0.15, 0.0, 0.72))
+    point_at(camera, (-0.5, 0.0, 0.72))
     scene.camera = camera
 
     def area_light(name: str, location: tuple[float, float, float], energy: float, size: float, color: tuple[float, float, float]) -> None:
