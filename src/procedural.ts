@@ -29,7 +29,7 @@ const palette = Object.freeze({
   floor: 0xd8b995,
 });
 
-// The approved player's authored hair color.
+// The player models' authored hair color.
 const PLAYER_HAIR = 0x4d352c;
 
 function material(color: number, roughness = 0.78): MeshStandardMaterial {
@@ -75,7 +75,7 @@ export function createPlayerFallback(): Group {
   shadow.castShadow = false;
   avatar.add(shadow);
 
-  // Parts borrow the approved model's material names so the chosen look
+  // Parts borrow the player models' material names so the chosen look
   // repaints the stand-in too.
   const body = mesh(new CapsuleGeometry(0.32, 0.52, 8, 16), palette.yellow);
   body.material.name = PLAYER_MATERIALS.hoodie;
@@ -90,7 +90,7 @@ export function createPlayerFallback(): Group {
 
   addEyes(avatar, 0.68, 0.11, 0.292);
 
-  // Stand-ins for each alternative part set, named with the approved model's
+  // Stand-ins for each alternative part set, named with the player models'
   // node prefixes so the chosen look shows the same choices here.
   const cap = mesh(new SphereGeometry(0.3, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), palette.blue);
   cap.name = 'player_beanie_fallback';
@@ -122,6 +122,12 @@ export function createPlayerFallback(): Group {
     lock.position.set(side * 0.3, 0.8, -0.02);
     avatar.add(lock);
   }
+
+  const shorts = mesh(new CylinderGeometry(0.325, 0.3, 0.2, 20, 1, true), palette.coral);
+  shorts.name = 'player_trousers_fallback';
+  shorts.material.name = PLAYER_MATERIALS.trousers;
+  shorts.position.y = 0.2;
+  avatar.add(shorts);
 
   const skirt = mesh(new CylinderGeometry(0.33, 0.4, 0.26, 20, 1, true), palette.violet);
   skirt.name = 'player_skirt_fallback';

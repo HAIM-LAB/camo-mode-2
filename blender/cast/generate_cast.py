@@ -6,16 +6,20 @@ Run from the repository root:
 
 The modeling space is Blender's Z-up space. Blender's glTF exporter converts it to
 Y-up; models face Blender -Y so that the exported forward direction is glTF +Z.
-No images, fonts, or other external assets are used.
+No images, fonts, or other external assets are used. (The realistic player, built
+from CC0 MakeHuman assets, has its own script: generate_realistic_player.py.)
 """
 
 from __future__ import annotations
 
 import math
+from contextlib import contextmanager
 from pathlib import Path
 
+import bmesh
 import bpy
 from mathutils import Vector
+from mathutils.bvhtree import BVHTree
 
 
 SCRIPT_PATH = Path(__file__).resolve()
@@ -32,8 +36,13 @@ ASSET_COLLECTIONS: dict[str, bpy.types.Collection] = {}
 ASSET_ROOTS: dict[str, bpy.types.Object] = {}
 CURRENT_COLLECTION: bpy.types.Collection | None = None
 CURRENT_ROOT: bpy.types.Object | None = None
+# The object new parts hang from: the asset root, or the pivot being filled.
+CURRENT_PARENT: bpy.types.Object | None = None
+PIVOT_ORIGINS: dict[str, Vector] = {}
 MATERIALS: dict[str, bpy.types.Material] = {}
+PLAYER_KEY = "player-cartoon"
 LINEUP_HIDDEN_VARIANTS = ("player_hair_girl_", "player_skirt", "player_scarf_")
+FPS = 30
 
 
 # -----------------------------------------------------------------------------
@@ -63,6 +72,7 @@ def reset_scene() -> None:
     scene.unit_settings.length_unit = "METERS"
     scene.unit_settings.scale_length = 1.0
     scene.render.engine = "BLENDER_EEVEE_NEXT"
+    scene.render.fps = FPS
     scene.render.resolution_x = 1200
     scene.render.resolution_y = 700
     scene.render.resolution_percentage = 100
@@ -109,6 +119,11 @@ def make_materials() -> None:
     material("Player Scarf", (1.0, 0.57, 0.045, 1.0))
     material("Player Scarf Dark", (0.72, 0.30, 0.015, 1.0))
     material("Player Skirt", (0.018, 0.235, 0.28, 1.0))
+    # The leggings under the skirt follow the trousers, the shoes the backpack.
+    material("Player Leggings", (0.82, 0.17, 0.17, 1.0))
+    material("Player Shoes", (1.0, 0.57, 0.045, 1.0))
+    # The cheek color of the default skin tone in src/player-look.ts (#cc7461).
+    material("Player Blush", (0.604, 0.175, 0.120, 1.0), roughness=0.9)
 
     # Friend A: rounded plum/mint silhouette and open pose.
     material("A Skin", (0.23, 0.085, 0.04, 1.0))
@@ -147,7 +162,7 @@ def move_to_collection(obj: bpy.types.Object, collection: bpy.types.Collection) 
 
 
 def begin_asset(key: str, display_name: str, description: str) -> bpy.types.Object:
-    global CURRENT_COLLECTION, CURRENT_ROOT
+    global CURRENT_COLLECTION, CURRENT_ROOT, CURRENT_PARENT
     collection = bpy.data.collections.new(f"CAST_{key.upper().replace('-', '_')}")
     bpy.context.scene.collection.children.link(collection)
     root = bpy.data.objects.new(f"{key}_ROOT", None)
@@ -164,15 +179,43 @@ def begin_asset(key: str, display_name: str, description: str) -> bpy.types.Obje
     ASSET_ROOTS[key] = root
     CURRENT_COLLECTION = collection
     CURRENT_ROOT = root
+    CURRENT_PARENT = root
     return root
 
 
 def register_object(obj: bpy.types.Object) -> bpy.types.Object:
-    if CURRENT_COLLECTION is None or CURRENT_ROOT is None:
+    if CURRENT_COLLECTION is None or CURRENT_PARENT is None:
         raise RuntimeError("begin_asset() must be called before adding asset geometry")
     move_to_collection(obj, CURRENT_COLLECTION)
-    obj.parent = CURRENT_ROOT
+    obj.parent = CURRENT_PARENT
+    # Parts are placed in asset space; a pivot's children sit relative to it.
+    obj.location = Vector(obj.location) - PIVOT_ORIGINS.get(CURRENT_PARENT.name, Vector())
     return obj
+
+
+@contextmanager
+def pivot(name: str, origin: tuple[float, float, float]):
+    """Groups the parts added inside it under an empty at origin, so they animate as one."""
+    global CURRENT_PARENT
+    outer = CURRENT_PARENT
+    empty = bpy.data.objects.new(name, None)
+    empty.empty_display_type = "SPHERE"
+    empty.empty_display_size = 0.03
+    bpy.context.scene.collection.objects.link(empty)
+    register_object(empty)
+    empty.location = Vector(origin) - PIVOT_ORIGINS.get(outer.name, Vector())
+    PIVOT_ORIGINS[name] = Vector(origin)
+    CURRENT_PARENT = empty
+    try:
+        yield empty
+    finally:
+        CURRENT_PARENT = outer
+
+
+def shade_smooth(obj: bpy.types.Object, *, sharp_caps: bool = False) -> None:
+    """Smooth shading; sharp_caps keeps the flat ends of a cone or cylinder flat."""
+    for polygon in obj.data.polygons:
+        polygon.use_smooth = not (sharp_caps and abs(polygon.normal.z) > 0.9)
 
 
 def apply_scale(obj: bpy.types.Object) -> None:
@@ -216,6 +259,7 @@ def add_ico(
     *,
     subdivisions: int = 2,
     rotation: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    smooth: bool = False,
 ) -> bpy.types.Object:
     bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=subdivisions, radius=1.0, location=location, rotation=rotation)
     obj = bpy.context.object
@@ -223,6 +267,56 @@ def add_ico(
     obj.scale = scale
     apply_scale(obj)
     obj.data.materials.append(mat)
+    if smooth:
+        shade_smooth(obj)
+    return register_object(obj)
+
+
+def add_dome(
+    name: str,
+    center: tuple[float, float, float],
+    radii: tuple[float, float, float],
+    mat: bpy.types.Material,
+    *,
+    plane_point: tuple[float, float, float],
+    plane_normal: tuple[float, float, float],
+) -> bpy.types.Object:
+    """The part of a smooth ellipsoid on the normal's side of a plane, left open at the cut."""
+    bpy.ops.mesh.primitive_ico_sphere_add(subdivisions=3, radius=1.0, location=center)
+    obj = bpy.context.object
+    obj.name = name
+    obj.scale = radii
+    apply_scale(obj)
+    mesh = bmesh.new()
+    mesh.from_mesh(obj.data)
+    bmesh.ops.bisect_plane(
+        mesh,
+        geom=mesh.verts[:] + mesh.edges[:] + mesh.faces[:],
+        plane_co=Vector(plane_point) - Vector(center),
+        plane_no=Vector(plane_normal),
+        clear_inner=True,
+    )
+    mesh.to_mesh(obj.data)
+    mesh.free()
+    obj.data.materials.append(mat)
+    shade_smooth(obj)
+    return register_object(obj)
+
+
+def add_surface(
+    name: str,
+    vertices: list[Vector],
+    faces: list[tuple[int, ...]],
+    mat: bpy.types.Material,
+) -> bpy.types.Object:
+    """A smooth-shaded mesh from explicit asset-space vertices and faces."""
+    mesh = bpy.data.meshes.new(name)
+    mesh.from_pydata([tuple(vertex) for vertex in vertices], [], faces)
+    mesh.update()
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.scene.collection.objects.link(obj)
+    obj.data.materials.append(mat)
+    shade_smooth(obj)
     return register_object(obj)
 
 
@@ -283,6 +377,7 @@ def add_cone(
     mat: bpy.types.Material,
     *,
     vertices: int = 10,
+    smooth: bool = False,
 ) -> bpy.types.Object:
     bpy.ops.mesh.primitive_cone_add(
         vertices=vertices,
@@ -297,6 +392,8 @@ def add_cone(
     obj.scale.y = scale_xy[1]
     apply_scale(obj)
     obj.data.materials.append(mat)
+    if smooth:
+        shade_smooth(obj, sharp_caps=True)
     return register_object(obj)
 
 
@@ -382,79 +479,408 @@ def add_shoe(name: str, x: float, y: float, main_mat: bpy.types.Material, accent
 # Character modeling
 
 
+# The cartoon player's head: an ellipsoid the face is painted onto.
+HEAD_CENTER = Vector((0.0, 0.0, 0.86))
+HEAD_RADII = Vector((0.30, 0.275, 0.265))
+
+
+def head_point(yaw: float, pitch: float, lift: float = 0.0) -> Vector:
+    """A point on the head, lifted off the surface by lift meters.
+
+    Angles are degrees from the middle of the face: yaw turns toward the
+    character's +X side, pitch rises toward the crown.
+    """
+    yaw_r, pitch_r = math.radians(yaw), math.radians(pitch)
+    direction = Vector((
+        math.sin(yaw_r) * math.cos(pitch_r),
+        -math.cos(yaw_r) * math.cos(pitch_r),
+        math.sin(pitch_r),
+    ))
+    surface = Vector(radius * axis for radius, axis in zip(HEAD_RADII, direction))
+    return HEAD_CENTER + surface + direction * lift
+
+
+def add_face_decal(
+    name: str,
+    yaw: float,
+    pitch: float,
+    half_width: float,
+    half_height: float,
+    mat: bpy.types.Material,
+    *,
+    lift: float = 0.004,
+    tilt: float = 0.0,
+) -> bpy.types.Object:
+    """A painted-on oval: a patch of faces that follows the head's curve.
+
+    Sizes are in meters along the surface; tilt (degrees) turns the oval in place.
+    It bulges by lift at its middle and meets the head at its rim.
+    """
+    rings, segments = 3, 18
+    tilt_r = math.radians(tilt)
+    meters_per_yaw = math.radians(1.0) * HEAD_RADII.x * math.cos(math.radians(pitch))
+    meters_per_pitch = math.radians(1.0) * HEAD_RADII.z
+    vertices = [head_point(yaw, pitch, lift)]
+    for ring in range(1, rings + 1):
+        reach = ring / rings
+        for segment in range(segments):
+            angle = 2.0 * math.pi * segment / segments
+            across, up = half_width * reach * math.cos(angle), half_height * reach * math.sin(angle)
+            across, up = (
+                across * math.cos(tilt_r) - up * math.sin(tilt_r),
+                across * math.sin(tilt_r) + up * math.cos(tilt_r),
+            )
+            vertices.append(head_point(
+                yaw + across / meters_per_yaw,
+                pitch + up / meters_per_pitch,
+                lift * (1.0 - 0.75 * reach * reach),
+            ))
+    faces: list[tuple[int, ...]] = []
+    for segment in range(segments):
+        following = (segment + 1) % segments
+        faces.append((0, 1 + segment, 1 + following))
+        for ring in range(1, rings):
+            inner, outer = 1 + (ring - 1) * segments, 1 + ring * segments
+            faces.append((inner + segment, outer + segment, outer + following, inner + following))
+    return add_surface(name, vertices, faces, mat)
+
+
+def add_smile(name: str, half_span: float, pitch: float, rise: float, thickness: float, mat: bpy.types.Material) -> bpy.types.Object:
+    """A painted-on smile: an arc across the face whose ends curl up by rise degrees."""
+    columns = 14
+    vertices: list[Vector] = []
+    for column in range(columns + 1):
+        along = -1.0 + 2.0 * column / columns
+        middle = pitch + rise * along * along
+        # Tapered to rounded tips.
+        half = max(thickness * math.sqrt(max(1.0 - along * along, 0.0)), 0.04)
+        lift = 0.0035 * (1.0 - 0.6 * along * along)
+        vertices.append(head_point(half_span * along, middle - half, lift))
+        vertices.append(head_point(half_span * along, middle + half, lift))
+    faces = [
+        (2 * column, 2 * column + 2, 2 * column + 3, 2 * column + 1)
+        for column in range(columns)
+    ]
+    return add_surface(name, vertices, faces, mat)
+
+
 def build_player() -> None:
+    """The cartoon player: a big round head on a small body, with a painted-on face.
+
+    An original design in the proportions of cosy village-life games. Its
+    material and part names are the runtime's customization API; see
+    docs/asset-contract.md.
+    """
     root = begin_asset(
-        "player",
-        "Player",
-        "Friendly child explorer; teal hoodie and gold backpack are optimized for a third-person rear view.",
+        PLAYER_KEY,
+        "Player (cartoon)",
+        "Round-headed child explorer with stubby limbs and a painted-on face; the gold backpack reads from behind.",
     )
-    root["height_m"] = 1.405
-    root["pose"] = "balanced ready stance"
-    root["rear_read"] = "gold backpack, teal hood, coral trousers"
+    root["height_m"] = 1.30
+    root["pose"] = "relaxed stand; idle and walk clips animate the pivots"
+    root["rear_read"] = "gold backpack and beanie, teal tunic"
     root["variants"] = "hair boy/girl, bottoms trousers/skirt, headwear beanie/head scarf; see add_player_variants()"
 
-    add_shoe("player_shoe_L", -0.135, 0.005, MATERIALS["Player Teal Dark"], MATERIALS["Player Gold"], angle=-0.035)
-    add_shoe("player_shoe_R", 0.135, 0.005, MATERIALS["Player Teal Dark"], MATERIALS["Player Gold"], angle=0.035)
-    add_cylinder("player_leg_L", (-0.13, 0.015, 0.34), 0.092, 0.42, MATERIALS["Player Coral"], vertices=10, scale_xy=(0.88, 1.0))
-    add_cylinder("player_leg_R", (0.13, 0.015, 0.34), 0.092, 0.42, MATERIALS["Player Coral"], vertices=10, scale_xy=(0.88, 1.0))
-    add_cone("player_hoodie", (0.0, 0.0, 0.76), 0.25, 0.215, 0.45, (1.0, 0.75), MATERIALS["Player Teal"])
-    add_rounded_cube("player_hoodie_pocket", (0.0, -0.195, 0.70), (0.25, 0.045, 0.13), MATERIALS["Player Teal Dark"], bevel=0.025)
-    add_cylinder("player_neck", (0.0, 0.0, 0.995), 0.075, 0.105, MATERIALS["Player Skin"], vertices=10)
-
-    # Relaxed, slightly splayed arms leave a strong controllable-character outline.
-    add_segment("player_sleeve_L", (-0.205, -0.005, 0.91), (-0.295, -0.018, 0.635), 0.082, MATERIALS["Player Teal"])
-    add_segment("player_sleeve_R", (0.205, -0.005, 0.91), (0.295, -0.018, 0.635), 0.082, MATERIALS["Player Teal"])
-    add_ico("player_hand_L", (-0.31, -0.02, 0.57), (0.07, 0.055, 0.075), MATERIALS["Player Skin"], subdivisions=2)
-    add_ico("player_hand_R", (0.31, -0.02, 0.57), (0.07, 0.055, 0.075), MATERIALS["Player Skin"], subdivisions=2)
-
-    # Hood and hair sit behind the face. Blender +Y is exported character-back (-Z).
-    add_ico("player_hoodie_hood", (0.0, 0.105, 1.045), (0.225, 0.115, 0.185), MATERIALS["Player Teal Dark"], subdivisions=2)
-    add_ico("player_hair_back", (0.0, 0.035, 1.195), (0.235, 0.185, 0.215), MATERIALS["Player Hair"], subdivisions=2)
-    add_face("player", MATERIALS["Player Skin"], MATERIALS["Player Skin Light"], center_z=1.175, head_scale=(0.215, 0.19, 0.215))
-    # A simple low beanie gives a crisp top silhouette without gender coding.
-    add_ico("player_beanie_crown", (0.0, -0.002, 1.335), (0.232, 0.195, 0.070), MATERIALS["Player Gold"], subdivisions=2)
-    add_rounded_cube("player_beanie_band", (0.0, -0.005, 1.300), (0.445, 0.34, 0.068), MATERIALS["Player Gold Dark"], bevel=0.025)
-
-    # The bright pack is the player's primary rear-view identifier.
-    add_rounded_cube("player_backpack", (0.0, 0.205, 0.765), (0.34, 0.145, 0.365), MATERIALS["Player Gold"], bevel=0.055)
-    add_rounded_cube("player_pack_flap", (0.0, 0.284, 0.835), (0.30, 0.035, 0.12), MATERIALS["Player Gold Dark"], bevel=0.025)
-    add_rounded_cube("player_pack_badge", (0.0, 0.307, 0.740), (0.095, 0.025, 0.095), MATERIALS["Player Teal"], bevel=0.018, rotation=(0.0, math.radians(45.0), 0.0))
-    add_rounded_cube("player_pack_strap_L", (-0.105, 0.286, 0.935), (0.055, 0.025, 0.16), MATERIALS["Player Gold Dark"], bevel=0.018)
-    add_rounded_cube("player_pack_strap_R", (0.105, 0.286, 0.935), (0.055, 0.025, 0.16), MATERIALS["Player Gold Dark"], bevel=0.018)
-
-    add_player_variants()
-
-
-def add_player_variants() -> None:
-    """Alternative part sets the character menu switches between at runtime.
-
-    Every set exports into player.glb as named nodes; the app shows one per
-    choice by name prefix. The body is shared: Boy and Girl differ only in hair.
-      player_hair_boy_*   short swept fringe (shows under the beanie)
-      player_hair_girl_*  shoulder-length hair and side locks
-      player_skirt*       knee-length skirt over the existing legs
-      player_scarf_*      head scarf; replaces the beanie and covers all hair
-    """
+    skin, skin_light = MATERIALS["Player Skin"], MATERIALS["Player Skin Light"]
+    teal, teal_dark = MATERIALS["Player Teal"], MATERIALS["Player Teal Dark"]
+    gold, gold_dark = MATERIALS["Player Gold"], MATERIALS["Player Gold Dark"]
     hair = MATERIALS["Player Hair"]
-    add_ico("player_hair_boy_fringe", (-0.04, -0.192, 1.282), (0.125, 0.036, 0.03), hair, subdivisions=1, rotation=(0.0, math.radians(-10.0), math.radians(8.0)))
 
-    add_ico("player_hair_girl_back", (0.0, 0.14, 1.075), (0.238, 0.118, 0.175), hair, subdivisions=2)
-    add_ico("player_hair_girl_lock_L", (-0.2, -0.045, 1.07), (0.062, 0.078, 0.15), hair, subdivisions=2)
-    add_ico("player_hair_girl_lock_R", (0.2, -0.045, 1.07), (0.062, 0.078, 0.15), hair, subdivisions=2)
+    # Legs hang from the hips and stay planted while the body bobs above them.
+    for side, x in (("L", -0.095), ("R", 0.095)):
+        with pivot(f"pivot_leg_{side}", (x, 0.0, 0.31)):
+            add_ico(f"player_shoe_{side}", (x, -0.032, 0.058), (0.088, 0.128, 0.058), MATERIALS["Player Shoes"], smooth=True)
+            add_ico(f"player_shoe_{side}_sole", (x, -0.032, 0.02), (0.092, 0.132, 0.02), MATERIALS["Sole"], smooth=True)
+            add_cylinder(f"player_trousers_{side}", (x, 0.0, 0.205), 0.082, 0.25, MATERIALS["Player Coral"], vertices=14)
+            shade_smooth(bpy.data.objects[f"player_trousers_{side}"], sharp_caps=True)
+            # Slimmer leggings stand in for the trouser legs under the skirt.
+            add_cylinder(f"player_skirt_leg_{side}", (x, 0.0, 0.205), 0.058, 0.25, MATERIALS["Player Leggings"], vertices=14)
+            shade_smooth(bpy.data.objects[f"player_skirt_leg_{side}"], sharp_caps=True)
 
-    # Hem sits below the knee; the trouser legs read as leggings underneath.
-    add_cone("player_skirt", (0.0, 0.0, 0.42), 0.285, 0.215, 0.30, (1.0, 0.8), MATERIALS["Player Skirt"], vertices=12)
+    with pivot("pivot_body", (0.0, 0.0, 0.30)):
+        add_cone("player_tunic", (0.0, 0.0, 0.445), 0.215, 0.125, 0.37, (1.0, 0.82), teal, vertices=20, smooth=True)
+        add_torus("player_tunic_hem", (0.0, 0.0, 0.268), 0.212, 0.024, teal_dark, scale=(1.0, 0.82, 1.0), segments=(24, 8))
+        add_torus("player_tunic_collar", (0.0, 0.0, 0.622), 0.118, 0.03, teal_dark, scale=(1.0, 0.85, 1.0), segments=(20, 8))
+        for name in ("player_tunic_hem", "player_tunic_collar"):
+            shade_smooth(bpy.data.objects[name])
+        add_cone("player_skirt", (0.0, 0.0, 0.235), 0.285, 0.185, 0.2, (1.0, 0.84), MATERIALS["Player Skirt"], vertices=20, smooth=True)
 
-    # A full covering that frames the face. The face opening is the plane
-    # y=-0.155 cutting the head sphere: a clean 0.167 m circle the band sits on.
-    # The hood is sized to meet that circle all the way round (a few percent
-    # over, so its facets never leave a gap behind the band) and encloses the
-    # hair and ears. The capelet wraps under the chin and rests on the
-    # shoulders clear of the hoodie.
+        # The bright pack is the player's primary rear-view identifier.
+        add_rounded_cube("player_backpack", (0.0, 0.205, 0.44), (0.27, 0.13, 0.25), gold, bevel=0.05)
+        add_rounded_cube("player_pack_flap", (0.0, 0.272, 0.495), (0.235, 0.03, 0.095), gold_dark, bevel=0.022)
+        add_rounded_cube("player_pack_badge", (0.0, 0.273, 0.395), (0.07, 0.022, 0.07), teal, bevel=0.014, rotation=(0.0, math.radians(45.0), 0.0))
+
+        # The arms are held well out, so the mitts and the lower sleeves keep a
+        # clear gap from the tunic and the skirt (check_player_clearance() measures it).
+        for side, sign in (("L", -1.0), ("R", 1.0)):
+            with pivot(f"pivot_arm_{side}", (sign * 0.135, 0.0, 0.565)):
+                add_segment(f"player_sleeve_{side}", (sign * 0.135, 0.0, 0.565), (sign * 0.312, -0.012, 0.455), 0.06, teal, vertices=12)
+                shade_smooth(bpy.data.objects[f"player_sleeve_{side}"], sharp_caps=False)
+                add_ico(f"player_hand_{side}", (sign * 0.34, -0.014, 0.436), (0.066, 0.06, 0.066), skin, smooth=True)
+
+        with pivot("pivot_head", (0.0, 0.0, 0.62)):
+            add_ico("player_head", tuple(HEAD_CENTER), tuple(HEAD_RADII), skin, subdivisions=4, smooth=True)
+            # Hair sits behind and above the face; the fringes below finish each look.
+            add_ico("player_hair_back", (0.0, 0.05, 0.878), (0.308, 0.262, 0.276), hair, subdivisions=3, smooth=True)
+
+            # The face is painted on: flat shapes that hug the head.
+            ink, white = MATERIALS["Ink"], MATERIALS["Soft White"]
+            for side, sign in (("L", -1.0), ("R", 1.0)):
+                add_face_decal(f"player_eye_{side}", sign * 19.0, 1.0, 0.034, 0.056, ink, lift=0.005)
+                add_face_decal(f"player_eye_{side}_glint", sign * 19.0 - 2.4, 6.0, 0.011, 0.014, white, lift=0.008)
+                add_face_decal(f"player_cheek_{side}", sign * 35.0, -17.0, 0.046, 0.027, MATERIALS["Player Blush"], lift=0.0035)
+            add_ico("player_nose", tuple(head_point(0.0, -8.0, -0.004)), (0.02, 0.016, 0.017), skin_light, smooth=True)
+            add_smile("player_smile", 10.5, -27.0, 5.5, 1.5, MATERIALS["Smile"])
+
+            add_player_headwear()
+
+        add_scarf_drape()
+
+    add_player_hair()
+
+
+def add_player_hair() -> None:
+    """Boy and Girl share one body; these fringes and bunches are the difference.
+
+      player_hair_boy_*   a short tufted fringe under the beanie
+      player_hair_girl_*  side-swept bangs and two low bunches
+    """
+    global CURRENT_PARENT
+    hair = MATERIALS["Player Hair"]
+    outer, CURRENT_PARENT = CURRENT_PARENT, bpy.data.objects["pivot_head"]
+    try:
+        # Both fringes are painted on like the face: they follow the forehead and
+        # tuck up under the hat's cuff, leaving clear forehead above the eyes.
+        add_face_decal("player_hair_boy_fringe", -8.0, 25.0, 0.15, 0.032, hair, lift=0.012, tilt=-8.0)
+        add_face_decal("player_hair_boy_tuft", 30.0, 26.5, 0.05, 0.025, hair, lift=0.01, tilt=20.0)
+
+        add_face_decal("player_hair_girl_bangs", 0.0, 25.0, 0.215, 0.033, hair, lift=0.012)
+        for side, sign in (("L", -1.0), ("R", 1.0)):
+            add_ico(f"player_hair_girl_bunch_{side}", (sign * 0.325, 0.07, 0.7), (0.085, 0.085, 0.105), hair, smooth=True)
+            add_ico(f"player_hair_girl_tie_{side}", (sign * 0.292, 0.06, 0.775), (0.04, 0.04, 0.03), MATERIALS["Player Gold"], smooth=True)
+    finally:
+        CURRENT_PARENT = outer
+
+
+def add_player_headwear() -> None:
+    """Both headwear sets, added under the head pivot.
+
+      player_beanie_*  a bobble hat over the hair
+      player_scarf_*   a head scarf; replaces the beanie and covers all hair
+    """
+    gold, gold_dark = MATERIALS["Player Gold"], MATERIALS["Player Gold Dark"]
+    # A tall knit hat pulled down to the fringe, sitting lower at the back. Its
+    # crown clears the hair by a centimetre; the rolled cuff hides the cut edge.
+    tilt = math.radians(9.0)
+    crown_center, crown_radii = (0.0, 0.035, 0.8), (0.33, 0.305, 0.4)
+    cuff_height = 0.95
+    add_dome(
+        "player_beanie_crown",
+        crown_center,
+        crown_radii,
+        gold,
+        plane_point=(0.0, 0.0, cuff_height),
+        plane_normal=(0.0, math.sin(tilt), math.cos(tilt)),
+    )
+    rim = math.sqrt(1.0 - ((cuff_height - crown_center[2]) / crown_radii[2]) ** 2)
+    add_torus(
+        "player_beanie_band",
+        (crown_center[0], crown_center[1], cuff_height + 0.02),
+        crown_radii[0] * rim - 0.008,
+        0.02,
+        gold_dark,
+        scale=(1.0, crown_radii[1] / crown_radii[0], 1.7),
+        rotation=(-tilt, 0.0, 0.0),
+        segments=(32, 10),
+    )
+    shade_smooth(bpy.data.objects["player_beanie_band"])
+    add_ico("player_beanie_bobble", (0.0, 0.035, 1.235), (0.066, 0.066, 0.066), gold_dark, smooth=True)
+
+    # A full covering that frames the face. The hood encloses the head and hair
+    # and is cut open at the plane y=-0.185, where the head is a 0.222 x 0.196 m
+    # ellipse; the band closes the centimetre between that and the hood's edge.
     scarf, scarf_dark = MATERIALS["Player Scarf"], MATERIALS["Player Scarf Dark"]
-    add_ico("player_scarf_hood", (0.0, 0.026, 1.18), (0.262, 0.247, 0.262), scarf, subdivisions=2)
-    add_torus("player_scarf_band", (0.0, -0.155, 1.175), 0.167, 0.034, scarf_dark, rotation=(math.radians(90.0), 0.0, 0.0))
-    add_cone("player_scarf_drape", (0.0, 0.03, 1.0), 0.275, 0.165, 0.17, (1.0, 0.9), scarf, vertices=12)
+    add_dome(
+        "player_scarf_hood",
+        (0.0, 0.03, 0.865),
+        (0.325, 0.31, 0.295),
+        scarf,
+        plane_point=(0.0, -0.185, 0.865),
+        plane_normal=(0.0, 1.0, 0.0),
+    )
+    add_torus(
+        "player_scarf_band",
+        (0.0, -0.186, 0.863),
+        0.229,
+        0.022,
+        scarf_dark,
+        scale=(1.0, 0.89, 1.0),
+        rotation=(math.radians(90.0), 0.0, 0.0),
+        segments=(32, 10),
+    )
+    shade_smooth(bpy.data.objects["player_scarf_band"])
+
+
+def add_scarf_drape() -> None:
+    """The scarf's capelet: it rests on the shoulders, so it follows the body, not the head."""
+    add_cone("player_scarf_drape", (0.0, 0.01, 0.607), 0.24, 0.165, 0.14, (1.0, 0.9), MATERIALS["Player Scarf"], vertices=20, smooth=True)
+
+
+# -----------------------------------------------------------------------------
+# Player animation
+#
+# The clips turn and lift the pivots. Rotations are (x, y, z) degrees: a positive
+# x swings a hanging limb backward and leans the body forward.
+
+Pose = dict[str, tuple[tuple[float, float, float], tuple[float, float, float]]]
+STILL = (0.0, 0.0, 0.0)
+
+WALK_FRAMES = 15  # 0.5 s per stride
+IDLE_FRAMES = 90  # a 3 s loop
+
+
+def walk_pose(phase: float) -> Pose:
+    """A toddling walk in place: the legs and arms swing while the body rocks over them."""
+    swing = math.sin(phase)  # +1: the L leg is fully forward
+    rock = math.cos(phase)
+    return {
+        "pivot_leg_L": ((-36.0 * swing, 0.0, 0.0), STILL),
+        "pivot_leg_R": ((36.0 * swing, 0.0, 0.0), STILL),
+        "pivot_arm_L": ((40.0 * swing, 0.0, 0.0), STILL),
+        "pivot_arm_R": ((-40.0 * swing, 0.0, 0.0), STILL),
+        "pivot_body": ((4.0, 4.5 * rock, 0.0), (0.0, 0.0, 0.011 * (1.0 + math.cos(2.0 * phase)))),
+        "pivot_head": ((-2.0 + 1.5 * math.cos(2.0 * phase), -3.0 * rock, 0.0), STILL),
+    }
+
+
+def idle_pose(phase: float) -> Pose:
+    """Standing still: a soft breathing bob, swaying arms, and a slow head tilt."""
+    breath = math.sin(2.0 * phase)
+    sway = math.sin(phase)
+    return {
+        "pivot_leg_L": (STILL, STILL),
+        "pivot_leg_R": (STILL, STILL),
+        "pivot_arm_L": ((3.0 * sway, -1.5 * breath, 0.0), STILL),
+        "pivot_arm_R": ((-3.0 * sway, 1.5 * breath, 0.0), STILL),
+        "pivot_body": ((0.0, 0.8 * sway, 0.0), (0.0, 0.0, 0.004 * breath)),
+        "pivot_head": ((1.2 * breath, 2.6 * sway, 0.0), STILL),
+    }
+
+
+def animate_player() -> None:
+    """Writes the idle and walk clips, one NLA track per clip on every pivot.
+
+    The exporter merges same-named tracks into one glTF animation.
+    """
+    pivots = {name: bpy.data.objects[name] for name in walk_pose(0.0)}
+    rest = {name: obj.location.copy() for name, obj in pivots.items()}
+    for clip, frames, step, pose in (("idle", IDLE_FRAMES, 3, idle_pose), ("walk", WALK_FRAMES, 1, walk_pose)):
+        for name, obj in pivots.items():
+            obj.animation_data_create()
+            obj.animation_data.action = bpy.data.actions.new(f"{clip} {name}")
+        for frame in range(0, frames + 1, step):
+            for name, (rotation, offset) in pose(2.0 * math.pi * frame / frames).items():
+                obj = pivots[name]
+                obj.rotation_euler = [math.radians(angle) for angle in rotation]
+                obj.location = rest[name] + Vector(offset)
+                obj.keyframe_insert("rotation_euler", frame=frame + 1)
+                obj.keyframe_insert("location", frame=frame + 1)
+        for name, obj in pivots.items():
+            action = obj.animation_data.action
+            for curve in action.fcurves:
+                for point in curve.keyframe_points:
+                    point.interpolation = "LINEAR"
+            track = obj.animation_data.nla_tracks.new()
+            track.name = clip
+            track.strips.new(clip, 1, action)
+            obj.animation_data.action = None
+            obj.rotation_euler = (0.0, 0.0, 0.0)
+            obj.location = rest[name]
+
+
+# What the player's arms could touch, whatever the look, and in each choice of bottoms.
+PLAYER_BODY_PARTS = ("player_tunic", "player_tunic_hem", "player_backpack", "player_pack_flap", "player_shoe_L", "player_shoe_R")
+PLAYER_BOTTOMS_PARTS = {
+    "trousers": ("player_trousers_L", "player_trousers_R"),
+    "skirt": ("player_skirt", "player_skirt_leg_L", "player_skirt_leg_R"),
+}
+# The least gap, in meters, allowed between a mitt or lower sleeve and the body in any frame of any look.
+MIN_CLEARANCE = 0.02
+
+
+def check_player_clearance() -> dict[str, float]:
+    """The smallest gap between the player's arms and body while standing and through each clip.
+
+    The mitts and the outer part of each sleeve are measured against the tunic,
+    the backpack, the shoes, and whichever bottoms a look shows. (The inner
+    part of a sleeve joins the tunic at the shoulder, so it is not a gap.)
+    """
+    scene = bpy.context.scene
+    pivots = [obj for obj in ASSET_COLLECTIONS[PLAYER_KEY].objects if obj.name.startswith("pivot_")]
+    gaps: dict[str, float] = {}
+
+    def measure(label: str) -> None:
+        dependency = bpy.context.evaluated_depsgraph_get()
+
+        def placed(name: str):
+            obj = bpy.data.objects[name]
+            return obj, obj.evaluated_get(dependency).matrix_world
+
+        movers: list[Vector] = []
+        for side in ("L", "R"):
+            hand, matrix = placed(f"player_hand_{side}")
+            movers += [matrix @ vertex.co for vertex in hand.data.vertices]
+            # A sleeve is a tube whose own Z runs from the shoulder to the cuff,
+            # with vertices only at its ends. Its lower half is what hangs free,
+            # so that half of its surface is sampled between the two rings.
+            sleeve, matrix = placed(f"player_sleeve_{side}")
+            cuff = [vertex.co for vertex in sleeve.data.vertices if vertex.co.z > 0.0]
+            for share in (0.5, 0.625, 0.75, 0.875, 1.0):
+                movers += [matrix @ Vector((co.x, co.y, co.z * (2.0 * share - 1.0))) for co in cuff]
+
+        for bottoms, parts in PLAYER_BOTTOMS_PARTS.items():
+            smallest = math.inf
+            for name in PLAYER_BODY_PARTS + parts:
+                obj, matrix = placed(name)
+                surface = BVHTree.FromPolygons(
+                    [matrix @ vertex.co for vertex in obj.data.vertices],
+                    [tuple(polygon.vertices) for polygon in obj.data.polygons],
+                )
+                for point in movers:
+                    location, normal, _, distance = surface.find_nearest(point)
+                    inside = (point - location).dot(normal) < 0.0 and distance < 0.03
+                    smallest = min(smallest, -distance if inside else distance)
+            key = f"{label} in {bottoms}"
+            gaps[key] = min(gaps.get(key, math.inf), smallest)
+
+    def play(clip: str | None) -> None:
+        for obj in pivots:
+            for track in obj.animation_data.nla_tracks:
+                track.mute = True
+            obj.animation_data.action = bpy.data.actions[f"{clip} {obj.name}"] if clip else None
+
+    play(None)
+    scene.frame_set(1)
+    measure("standing")
+    for clip, frames, step in (("idle", IDLE_FRAMES, 3), ("walk", WALK_FRAMES, 1)):
+        play(clip)
+        for frame in range(1, frames + 2, step):
+            scene.frame_set(frame)
+            measure(clip)
+    play(None)
+    for obj in pivots:
+        for track in obj.animation_data.nla_tracks:
+            track.mute = False
+    scene.frame_set(1)
+    return gaps
+
+
+def mute_player_clips() -> None:
+    """Leaves the saved scene and its render in the rest pose rather than mid-clip."""
+    for obj in ASSET_COLLECTIONS[PLAYER_KEY].objects:
+        if obj.animation_data:
+            for track in obj.animation_data.nla_tracks:
+                track.mute = True
 
 
 def build_friend_a() -> None:
@@ -613,6 +1039,12 @@ def export_asset(key: str) -> Path:
         export_cameras=False,
         export_lights=False,
         export_extras=True,
+        # Only the player has clips; each NLA track name becomes one animation.
+        export_animations=True,
+        export_animation_mode="NLA_TRACKS",
+        export_optimize_animation_size=True,
+        # Clips start at time zero, so a loop is exactly as long as its stride.
+        export_anim_slide_to_zero=True,
     )
     return destination
 
@@ -634,16 +1066,17 @@ def create_preview_scene() -> None:
 
     # Every player variant exports together; the lineup shows the runtime default
     # look (boy hair, trousers, beanie) so alternatives do not overlap it.
-    for obj in ASSET_COLLECTIONS["player"].objects:
+    mute_player_clips()
+    for obj in ASSET_COLLECTIONS[PLAYER_KEY].objects:
         if obj.name.startswith(LINEUP_HIDDEN_VARIANTS):
             obj.hide_render = True
             obj.hide_set(True)
 
     # Source lineup remains editable while every GLB was exported at local origin.
-    ASSET_ROOTS["player"].location = (-2.75, 0.0, 0.0)
+    ASSET_ROOTS[PLAYER_KEY].location = (-2.75, 0.0, 0.0)
     # The preview deliberately shows the controllable player from the rear to
     # demonstrate the backpack/hood read expected from a third-person camera.
-    ASSET_ROOTS["player"].rotation_euler.z = math.radians(180.0)
+    ASSET_ROOTS[PLAYER_KEY].rotation_euler.z = math.radians(180.0)
     ASSET_ROOTS["friend-a"].location = (-1.25, 0.0, 0.0)
     ASSET_ROOTS["friend-b"].location = (0.30, 0.0, 0.0)
     ASSET_ROOTS["ball"].location = (1.45, 0.0, 0.0)
@@ -665,7 +1098,7 @@ def create_preview_scene() -> None:
     backdrop.data.materials.append(ground_mat)
 
     label_specs = (
-        ("PLAYER · REAR", -2.75),
+        ("CARTOON PLAYER", -2.75),
         ("FRIEND A", -1.25),
         ("FRIEND B", 0.30),
         ("BALL", 1.45),
@@ -731,7 +1164,7 @@ def world_bounds(objects: list[bpy.types.Object]) -> tuple[Vector, Vector]:
 
 def validate_exports(paths: list[Path]) -> None:
     expected_heights = {
-        "player": (1.34, 1.47),
+        PLAYER_KEY: (1.25, 1.36),
         "friend-a": (1.34, 1.47),
         "friend-b": (1.34, 1.47),
         "ball": (0.30, 0.38),
@@ -768,12 +1201,18 @@ def main() -> None:
     reset_scene()
     make_materials()
     build_player()
+    animate_player()
+    gaps = check_player_clearance()
+    for label, gap in gaps.items():
+        print(f"{'PASS' if gap >= MIN_CLEARANCE else 'FAIL'} player arms {label}: {gap * 1000:.0f} mm clear of the body")
+    if min(gaps.values()) < MIN_CLEARANCE:
+        raise RuntimeError(f"The player's arms come within {MIN_CLEARANCE * 1000:.0f} mm of its body")
     build_friend_a()
     build_friend_b()
     build_ball()
     build_block()
 
-    exported = [export_asset(key) for key in ("player", "friend-a", "friend-b", "ball", "block")]
+    exported = [export_asset(key) for key in (PLAYER_KEY, "friend-a", "friend-b", "ball", "block")]
     create_preview_scene()
     bpy.ops.wm.save_as_mainfile(filepath=str(BLEND_PATH))
     bpy.ops.render.render(write_still=True)

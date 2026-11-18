@@ -10,6 +10,11 @@ Camo and the player together on the carpet left of the coffee table, Friend A
 inside beside the couch, Friend B on the patio through the doorway, and both
 pickup props on the rug.
 
+The dialogue captures below predate the two player styles and still show the
+earlier chunky player. The dialogue layer itself is unchanged;
+[`menus/19-realistic-mock-dialogue.png`](menus/19-realistic-mock-dialogue.png)
+shows it with a current player.
+
 ## [`dialogue-panel.png`](dialogue-panel.png)
 
 A conversation with Camo, four turns in, running on the **keyless mock brain**
@@ -59,23 +64,41 @@ character was standing on when it spoke, not the one it landed in.
 
 ---
 
-## Menus and character customization
+## Menus, styles, and character customization
 
 The frames in [`menus/`](menus/) were captured on the keyless mock brain with
-`chrome-devtools-axi`, at 1440 × 900 and at a 390 × 844 phone viewport.
+`chrome-devtools-axi`, at 1440 × 900 and at a 390 × 844 phone viewport. The
+close-ups are crops of the same page at twice the pixel density.
 
-- `01`–`04`: the start menu, then the customization screen with the default
-  look, Girl · skirt · beanie, and Boy · trousers · head scarf.
-- [`combinations-front.png`](menus/combinations-front.png) and
-  [`combinations-back.png`](menus/combinations-back.png): all eight Boy/Girl ×
-  trousers/skirt × beanie/scarf combinations, across five skin tones and six
-  outfits. These were reviewed for age-appropriateness:
-  - one shared child body;
-  - skirts at or below the knee over leggings;
-  - a full head covering that frames the face.
-- `05`–`11`: face close-ups on the lightest, middle, and darkest tones, on
-  desktop and phone. They show that the eyes and mouth stay readable.
-- `12`: the look restored after a reload.
-- `13`–`15`: in game, rear and front, and a Camo conversation after the menus.
-- `16`: `?skipMenu=1`.
-- `17`–`19`: the phone layout.
+- `01`, `02`: the start menu, then the style choice. Each card shows its
+  character live, idling, in the child's current look.
+- `03`–`05`: the cartoon player in customization: the default look, Girl ·
+  skirt · beanie, and Boy · trousers · head scarf.
+- `06b`–`08`: the cartoon player in the playroom from behind and from the
+  front, and mid-stride in its walk clip.
+- `09`: after a reload the style and look are restored, and both cards wear
+  the look.
+- `11`–`13`: the realistic player in customization: the default look, Girl ·
+  skirt · beanie, and Girl · skirt · head scarf.
+- `15b`–`17`: the realistic player in the playroom from behind and from the
+  front, and mid-stride in its easy walk. It stands as tall as the rest of the
+  cast.
+- `32`: the realistic player carrying the ball.
+- `18`, `19`: `?skipMenu=1` enters the room in the saved style, and a Camo
+  conversation on the mock brain.
+- `20`: a look saved before styles existed loads as the cartoon player with
+  every choice kept.
+- `21`, `22`: the phone layout of the style choice and of customization.
+- `24`–`30`: each character standing, from the front and from the side, in
+  trousers and (front only) in the skirt. The arms and hands hang clear of the
+  body with a visible gap. These were captured with reduced motion forced, so
+  the preview holds still at the front in the rest pose; both generators also
+  measure that gap through every frame of the idle and walk clips.
+
+Both characters were reviewed for age-appropriateness in every combination:
+- one shared child body per style, with Boy and Girl differing only in hair;
+- everyday clothes that cover the torso, arms, and legs;
+- skirts at or below the knee over leggings;
+- a full head covering that frames the face;
+- on the realistic player, a young child's proportions and round face with a
+  slight closed-mouth smile and relaxed eyes.

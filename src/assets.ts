@@ -4,10 +4,12 @@ import {
   Material,
   Mesh,
   Object3D,
+  SkinnedMesh,
+  Texture,
   Vector3,
 } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { ASSET_URLS, AssetId } from './config';
+import { AssetId } from './config';
 
 export interface AssetLoadSummary {
   loaded: AssetId[];
@@ -37,10 +39,17 @@ export function disposeObject(root: Object3D): void {
   root.traverse((child) => {
     if (!(child instanceof Mesh)) return;
     child.geometry.dispose();
+    if (child instanceof SkinnedMesh) child.skeleton.dispose();
     const materials: Material[] = Array.isArray(child.material)
       ? child.material
       : [child.material];
-    for (const item of materials) item.dispose();
+    for (const item of materials) {
+      // A material does not own its maps, so they are released alongside it.
+      for (const value of Object.values(item)) {
+        if (value instanceof Texture) value.dispose();
+      }
+      item.dispose();
+    }
   });
 }
 
@@ -82,6 +91,9 @@ function prepareModel(model: Object3D, id: AssetId): Object3D {
 export class OptionalAssetLoader {
   private readonly loader = new GLTFLoader();
 
+  /** Takes the URL of each asset; `assetUrls(style)` in config.ts builds the map. */
+  constructor(private readonly urls: Readonly<Record<AssetId, string>>) {}
+
   async load(
     targets: AssetTargets,
     onProgress: ProgressCallback,
@@ -105,13 +117,15 @@ export class OptionalAssetLoader {
     publish();
     await Promise.all(
       entries.map(async ([id, target]) => {
-        const url = ASSET_URLS[id];
+        const url = this.urls[id];
         try {
           const gltf = await this.loader.loadAsync(url);
           if (!gltf.scene || gltf.scene.children.length === 0) {
             throw new Error('GLB contains no scene geometry');
           }
           const model = prepareModel(gltf.scene, id);
+          // Clips travel with the model, where an AnimationMixer looks for them.
+          model.animations = gltf.animations ?? [];
           preparers[id]?.(model);
           const oldVisuals = [...target.children];
           target.clear();
