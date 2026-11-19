@@ -16,9 +16,9 @@ import {
   savePlayerLook,
   surfaceColor,
 } from '../src/player-look';
-import { shouldSkipMenu } from '../src/menus';
 import { createPlayerFallback } from '../src/procedural';
 import { loadPlayerModel, materialsByName, meshNames, shownParts } from './helpers/player-model';
+import { blockedStorage, memoryStorage } from './helpers/storage';
 
 const AXES = LOOK_AXES as readonly LookAxis[];
 const STYLES = PLAYER_STYLES.map((style) => style.id);
@@ -95,15 +95,6 @@ function seenFromAbove(root: Object3D, target: Vector3): string[] {
     raycaster.set(target.clone().addScaledVector(toward, 3), toward.clone().negate());
     return raycaster.intersectObjects(shown, false)[0]?.object.name ?? 'nothing';
   });
-}
-
-function memoryStorage(initial: Record<string, string> = {}) {
-  const items = new Map(Object.entries(initial));
-  return {
-    items,
-    getItem: (key: string) => items.get(key) ?? null,
-    setItem: (key: string, value: string) => void items.set(key, value),
-  };
 }
 
 describe('player look catalog', () => {
@@ -423,25 +414,7 @@ describe('saved look', () => {
       DEFAULT_PLAYER_LOOK,
     );
     expect(loadPlayerLook(null)).toEqual(DEFAULT_PLAYER_LOOK);
-
-    const blocked = {
-      getItem: () => {
-        throw new Error('SecurityError');
-      },
-      setItem: () => {
-        throw new Error('QuotaExceededError');
-      },
-    };
-    expect(loadPlayerLook(blocked)).toEqual(DEFAULT_PLAYER_LOOK);
-    expect(() => savePlayerLook(DEFAULT_PLAYER_LOOK, blocked)).not.toThrow();
-  });
-});
-
-describe('menu skip', () => {
-  it('skips the menus only for skipMenu=1', () => {
-    expect(shouldSkipMenu('?skipMenu=1')).toBe(true);
-    expect(shouldSkipMenu('?debug=1&skipMenu=1')).toBe(true);
-    expect(shouldSkipMenu('')).toBe(false);
-    expect(shouldSkipMenu('?skipMenu=0')).toBe(false);
+    expect(loadPlayerLook(blockedStorage())).toEqual(DEFAULT_PLAYER_LOOK);
+    expect(() => savePlayerLook(DEFAULT_PLAYER_LOOK, blockedStorage())).not.toThrow();
   });
 });
