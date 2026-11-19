@@ -72,7 +72,8 @@ The frames in [`menus/`](menus/) were captured on the keyless mock brain with
 close-ups are crops of the same page at twice the pixel density.
 
 - `01`, `02`: the start menu, then the style choice. Each card shows its
-  character live, idling, in the child's current look.
+  character live, idling, in the child's current look. The mode choice (`45`)
+  now comes between the two.
 - `03`–`05`: the cartoon player in customization: the default look, Girl ·
   skirt · beanie, and Boy · trousers · head scarf.
 - `06b`–`08`: the cartoon player in the playroom from behind and from the
@@ -102,11 +103,16 @@ close-ups are crops of the same page at twice the pixel density.
   side, and the back in customization.
 - `41`–`44`: the same four in the playroom, under its camera, from the front,
   the side, and behind.
+- `45`, `46`: the mode choice that follows **Play**, on a laptop and on a
+  phone, as a first visit shows it. A later visit rings the mode picked last
+  time, as the style choice rings the style.
+- `47`, `48`: the playroom naming the mode being played in a small label under
+  the brand, on a laptop and on a phone.
 
-The playroom frames in this set were captured before Camo and the friends had
-a model per style, so the Camo and friends in them are the earlier chunky
-ones. The player in them is current; [`cast/`](cast/) shows the cast as it is
-now.
+The playroom frames in this set up to `44` were captured before Camo and the
+friends had a model per style, so the Camo and friends in them are the earlier
+chunky ones. The player in them is current; [`cast/`](cast/) shows the cast as
+it is now.
 
 Both characters were reviewed for age-appropriateness in every combination:
 - one shared child body per style, with Boy and Girl differing only in hair;
