@@ -11,8 +11,9 @@ layers, the pose helpers, and the arm clearance measurement. What is here is
 what makes each friend themselves: the face, hair, clothes, stance, and idle.
 docs/third-party-assets.md records every outside asset.
 
-Add `-- --views <directory>` to also save close-up renders of each friend, and
-`-- --only friend-a` (or friend-b) to build just one.
+Add `-- --views <directory>` to also save close-up renders of each friend,
+`-- --emotions <directory>` to save every emotion of each (its face alone, and
+its face and body), and `-- --only friend-a` (or friend-b) to build just one.
 """
 
 from __future__ import annotations
@@ -234,9 +235,12 @@ def split_footwear(shoes: bpy.types.Object, prefix: str) -> tuple[bpy.types.Obje
     return rp.join(footwear[2:], f"{prefix}_shoes"), rp.join(footwear[:2], f"{prefix}_socks")
 
 
-def add_face(mpfb: dict, body: bpy.types.Object) -> dict[str, bpy.types.Object]:
-    """The realistic player's eyes, eyebrows, and eyelashes, fitted to this body."""
-    return {name: rp.add_part(mpfb, body, part) for name, part in (("eyes", rp.EYES), ("brows", rp.BROWS), ("lashes", rp.LASHES))}
+def add_face(mpfb: dict, body: bpy.types.Object, expressions: rp.Expressions) -> dict[str, bpy.types.Object]:
+    """The realistic player's eyes, eyebrows, and eyelashes, fitted to this body; the last two follow its expressions."""
+    face = {name: rp.add_part(mpfb, body, part) for name, part in (("eyes", rp.EYES), ("brows", rp.BROWS), ("lashes", rp.LASHES))}
+    rp.follow_base_mesh(mpfb, expressions, face["brows"], rp.BROWS)
+    rp.follow_base_mesh(mpfb, expressions, face["lashes"], rp.LASHES)
+    return face
 
 
 def eye_texture(mpfb: dict, source: tuple[str, str, str], name: str, iris: tuple[float, float, float], size: int = 256) -> Path:
@@ -373,7 +377,8 @@ def build_friend_a(mpfb: dict) -> dict[str, bpy.types.Object]:
     body = rp.build_body(mpfb, A_MACROS, A_MORPHS)
     rig = mpfb["HumanService"].add_builtin_rig(body, "game_engine", import_weights=True)
     rig.name = rig.data.name = f"{prefix}_rig"
-    face = add_face(mpfb, body)
+    expressions = rp.capture_expressions(mpfb, body, rig, A_MORPHS, rp.FACE_UNITS)
+    face = add_face(mpfb, body, expressions)
     afro = rp.add_part(mpfb, body, HAIR_A)
     suit = rp.add_part(mpfb, body, SUIT_A)
     footwear = rp.add_part(mpfb, body, rp.SHOES)
@@ -410,6 +415,7 @@ def build_friend_a(mpfb: dict) -> dict[str, bpy.types.Object]:
     bpy.data.objects.remove(afro)
 
     body = rp.lighten_body(body, head, knee)
+    rp.tuck_mouth_lining(body)
     for obj in (shoes, leggings):
         rp.simplify(obj, 0.5)
     rp.simplify(puffs, 0.45)
@@ -453,7 +459,7 @@ def build_friend_a(mpfb: dict) -> dict[str, bpy.types.Object]:
     rp.assign(shoes, plum)
     sole_top = rp.world_z_range(shoes)[0] + 0.02
     rp.split_material(shoes, sun, lambda center: center.z < sole_top)
-    return {"rig": rig, **parts}
+    return {"rig": rig, "expressions": expressions, **parts}
 
 
 # -----------------------------------------------------------------------------
@@ -600,7 +606,8 @@ def build_friend_b(mpfb: dict) -> dict[str, bpy.types.Object]:
     body = rp.build_body(mpfb, B_MACROS, B_MORPHS)
     rig = mpfb["HumanService"].add_builtin_rig(body, "game_engine", import_weights=True)
     rig.name = rig.data.name = f"{prefix}_rig"
-    face = add_face(mpfb, body)
+    expressions = rp.capture_expressions(mpfb, body, rig, B_MORPHS, rp.FACE_UNITS)
+    face = add_face(mpfb, body, expressions)
     hair = rp.add_part(mpfb, body, HAIR_B)
     suit = rp.add_part(mpfb, body, SUIT_B)
     footwear = rp.add_part(mpfb, body, rp.SHOES)
@@ -630,6 +637,7 @@ def build_friend_b(mpfb: dict) -> dict[str, bpy.types.Object]:
     clip = hair_clip(hair, head, rig, f"{prefix}_hair_clip")
 
     body = rp.lighten_body(body, head, knee)
+    rp.tuck_mouth_lining(body)
     rp.simplify(shoes, 0.5)
 
     parts = {
@@ -665,7 +673,7 @@ def build_friend_b(mpfb: dict) -> dict[str, bpy.types.Object]:
     rp.assign(shoes, rp.make_material(f"{prefix} navy shoes", B_NAVY_HEX, roughness=0.7))
     sole_top = rp.world_z_range(shoes)[0] + 0.02
     rp.split_material(shoes, lime, lambda center: center.z < sole_top)
-    return {"rig": rig, **parts}
+    return {"rig": rig, "expressions": expressions, **parts}
 
 
 # -----------------------------------------------------------------------------
@@ -692,17 +700,10 @@ def plant_legs(rig: bpy.types.Object, legs: dict[str, rp.Leg], *, sway: float, d
     solved from its planted ankle, as the walk's are. step moves an ankle
     forward of its rest, in meters.
     """
-    bones = rig.pose.bones
-    rp.shift(bones["pelvis"], (sway, 0.0, -drop))
-    for side, leg in legs.items():
-        hip = leg.hip_height - drop
-        thigh_lean, shin_lean = rp.leg_angles(leg, hip, leg.ankle_ahead + (step or {}).get(side, 0.0), leg.ankle_height)
-        thigh = -math.degrees(thigh_lean - leg.thigh_lean)
-        shin = -math.degrees(shin_lean - leg.shin_lean)
-        tilt = math.degrees(math.atan2(sway, hip))
-        rp.turn(bones[f"thigh_{side}"], ("X", thigh), ("Y", tilt))
-        rp.turn(bones[f"calf_{side}"], ("X", shin - thigh))
-        rp.turn(bones[f"foot_{side}"], ("Y", -tilt), ("X", -shin))
+    rp.stand_over_feet(
+        rig, legs, hips=(sway, 0.0, -drop),
+        feet={side: rp.Foot(ahead=ahead) for side, ahead in (step or {}).items()},
+    )
 
 
 def stand(rig: bpy.types.Object, meshes: list[bpy.types.Object], stance: Stance) -> None:
@@ -806,6 +807,8 @@ class Friend:
     # The part that carries the sleeves, and the parts below it the arms could touch.
     top: str
     below: tuple[str, ...]
+    # The parts lying on the face, which move with the skin under them when it changes expression.
+    draped: tuple[str, ...]
     # The exported file must stay a sensible download for a browser game.
     max_triangles: int
     max_bytes: int
@@ -823,6 +826,8 @@ FRIEND_A = Friend(
     idle=Idle(frames=120, breaths=2, sway=0.004, dip=0.002, chest=0.8, look=2.5, arms=1.2),
     top="dress",
     below=("skirt", "sash", "panel", "leggings"),
+    # Her hair is drawn tight over the forehead her eyebrows lift.
+    draped=("hair_scalp",),
     max_triangles=26_000,
     max_bytes=1_500_000,
 )
@@ -839,6 +844,7 @@ FRIEND_B = Friend(
     idle=Idle(frames=90, breaths=2, sway=0.008, dip=0.004, chest=1.1, look=7.0, arms=2.2),
     top="jacket",
     below=("trousers", "shirt", "collar"),
+    draped=(),
     max_triangles=24_000,
     max_bytes=1_500_000,
 )
@@ -894,8 +900,13 @@ def validate_export(friend: Friend, nodes: list[str]) -> None:
     if missing:
         raise RuntimeError(f"{path.name}: missing parts {missing}")
     clips = {action.name.split("_")[0] for action in bpy.data.actions}
-    if clips != {"idle"}:
-        raise RuntimeError(f"{path.name}: expected an idle clip, found {sorted(clips)}")
+    if clips != {"idle", *rp.EMOTIONS}:
+        raise RuntimeError(f"{path.name}: expected an idle clip and one per emotion, found {sorted(clips)}")
+    for part in ("body", "brows", "lashes"):
+        keys = next(obj for obj in meshes if obj.name == f"{friend.prefix}_{part}").data.shape_keys
+        faces = [key.name for key in keys.key_blocks[1:]] if keys else []
+        if faces != list(rp.EMOTIONS):
+            raise RuntimeError(f"{path.name}: {part} should carry one face per emotion, found {faces}")
 
     bpy.context.view_layer.update()
     # Vertices rather than bounding boxes: a skinned mesh's box is not filled in on import.
@@ -924,6 +935,9 @@ def main() -> None:
     if views:
         views.mkdir(parents=True, exist_ok=True)
     only = arguments[arguments.index("--only") + 1] if "--only" in arguments else None
+    emotions = Path(arguments[arguments.index("--emotions") + 1]).resolve() if "--emotions" in arguments else None
+    if emotions:
+        emotions.mkdir(parents=True, exist_ok=True)
     friends = [friend for friend in FRIENDS if only is None or friend.key.startswith(only)]
     if not friends:
         raise SystemExit(f"No friend is called {only}")
@@ -935,14 +949,20 @@ def main() -> None:
         reset_scene()
         parts = friend.build(mpfb)
         rig = parts.pop("rig")
+        expressions = parts.pop("expressions")
         meshes = list(parts.values())
         nodes[friend.key] = list(parts)
 
+        def part(name: str) -> bpy.types.Object:
+            return parts[f"{friend.prefix}_{name}"]
+
         stand(rig, meshes, friend.stance)
         rp.ground(rig, meshes)
-        # Rendered before the clip exists, so the preview shows the rest pose.
+        # Rendered before the clips exist, so the preview shows the rest pose.
         frames += render_frames(friend, max(rp.world_z_range(obj)[1] for obj in meshes), views)
+        rp.add_expressions(expressions, rig, part("body"), rp.FACES, draped=tuple(part(name) for name in friend.draped))
         animate_idle(rig, friend.idle)
+        rp.animate_emotions(rig)
         drift = check_feet(rig, friend.idle)
         print(f"{'PASS' if drift <= MAX_FOOT_DRIFT else 'FAIL'} {friend.label} idle: the planted feet stay within {drift * 1000:.1f} mm")
         if drift > MAX_FOOT_DRIFT:
@@ -952,6 +972,12 @@ def main() -> None:
             print(f"{'PASS' if gap >= rp.MIN_CLEARANCE else 'FAIL'} {friend.label} arms {label}: {gap * 1000:.0f} mm at the closest, between {where}")
         if min(gap for gap, _ in gaps.values()) < rp.MIN_CLEARANCE:
             raise RuntimeError(f"One of {friend.label}'s arms comes within {rp.MIN_CLEARANCE * 1000:.0f} mm of the body")
+        # Rendered before the clips are checked, so a clip that fails can be looked at.
+        if emotions:
+            rp.render_emotions(rig, meshes, friend.key, emotions)
+        rp.report_faces(friend.label, meshes)
+        clearance = rp.Clearance(rig, parts, body=f"{friend.prefix}_body", top=f"{friend.prefix}_{friend.top}")
+        rp.report_emotions(friend.label, rig, clearance, {"": tuple(f"{friend.prefix}_{name}" for name in friend.below)})
         # Everything above is measured at the child's natural height. Only now
         # is the friend enlarged to stand with the rest of the cast.
         factor = friend.height / rp.world_z_range(parts[f"{friend.prefix}_body"])[1]

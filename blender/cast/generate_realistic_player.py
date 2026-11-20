@@ -4,6 +4,10 @@ Run from the repository root (see blender/cast/README.md for the one-time MPFB s
   /Applications/Blender.app/Contents/MacOS/Blender --background --factory-startup \
     --python blender/cast/generate_realistic_player.py
 
+Add `-- --views <directory>` to also save renders of every look, and
+`-- --emotions <directory>` to save every emotion: its face alone, and its
+face and body.
+
 Unlike generate_cast.py this uses outside assets: the MakeHuman base mesh, rig,
 and morph targets that ship with MPFB, and hair, clothes, shoes, skin, eyes,
 eyebrows, and eyelashes from the "MakeHuman system assets" pack. All of them are
@@ -299,6 +303,259 @@ def visible_skin(body: bpy.types.Object) -> None:
 
 
 # -----------------------------------------------------------------------------
+# Expressions
+#
+# A face shows an emotion through morph targets (Blender shape keys): one per
+# emotion, named for it, on every mesh the face moves. Each is a blend of
+# MakeHuman's expression units, the small movements of a face (a brow raised, a
+# lip corner pulled) that ship with MPFB as CC0 morphs of the whole base mesh.
+#
+# The units are read off the base mesh as soon as the body is built, because
+# everything after that cuts the mesh up. Its vertices are numbered first, so
+# whatever skin is left at the end can still find its share of each unit.
+
+EMOTIONS = ("anger", "disgust", "fear", "happiness", "sadness", "surprise")
+# The vertex attribute that numbers the base mesh's vertices; -1 marks a vertex made later.
+BASE_VERTEX = "base_vertex"
+# A vertex an expression moves less than this, in meters, is left where it is,
+# so the exported targets list only the vertices of the face that really move.
+STILL = 0.00004
+
+
+def both(unit: str, weight: float) -> dict[str, float]:
+    """A morph MakeHuman keeps one of for each side of the face, at the same weight on both.
+
+    {side} in its name stands for left and right, and {s} for l and r.
+    """
+    return {unit.format(side=side, s=side[0]): weight for side in ("left", "right")}
+
+
+# Each emotion's face, as the weight of every morph it sets: MakeHuman's
+# expression units, and a few of its modeling morphs where a unit alone is too
+# faint to read (the angle of the brows, the lift of the cheeks). A morph a face
+# does not name stays as the resting face has it. Weights above 1 push a unit
+# past its own extreme, which a child's round face needs before it shows.
+#
+# Each face has to be named from a close-up of the head alone, without a
+# label, and never be frightening: they are drawn for clarity, not intensity.
+FACES: dict[str, dict[str, float]] = {
+    # Brows drawn down and together over narrowed eyes, the lips pressed and turned down.
+    "anger": {
+        **both("eyebrows-{side}-down", 1.3), "eyebrows-angle-down": 0.75, **both("eye-{side}-slit", 0.5),
+        **both("nose-{side}-dilatation", 0.8),
+        "mouth-corner-puller": 0.0, "mouth-compression": 0.9, "mouth-depression": 0.7,
+    },
+    # A wrinkled nose, the eyes screwed up, and the top lip lifting away from the lower.
+    "disgust": {
+        **both("nose-{side}-elevation", 1.4), **both("eyebrows-{side}-down", 0.5), **both("eye-{side}-slit", 0.9),
+        "mouth-corner-puller": 0.0, "mouth-elevation": 0.9, "mouth-depression": 0.6, "mouth-upward-retraction": 0.2,
+    },
+    # Brows raised and pinched up in the middle, eyes wide enough to show white above, the mouth open and stretched sideways.
+    "fear": {
+        **both("eyebrows-{side}-up", 0.6), **both("eyebrows-{side}-inner-up", 1.2), "eyebrows-angle-up": 0.6,
+        **both("eye-{side}-opened-up", 1.2),
+        "mouth-corner-puller": 0.0, "mouth-open": 0.45, "mouth-retraction": 0.6, "mouth-depression": 0.35, "neck-platysma": 0.3,
+    },
+    # A broad, even, closed smile that lifts the cheeks and narrows the eyes a little.
+    "happiness": {
+        "mouth-corner-puller": 1.35, "mouth-angles-up": 0.45,
+        **both("{s}-cheek-trans-up", 0.5), **both("eye-{side}-slit", 0.5), **both("eyebrows-{side}-up", 0.25),
+    },
+    # Brows lifting in the middle over heavy lids, and a mouth turned down into a pout.
+    "sadness": {
+        **both("eyebrows-{side}-inner-up", 1.2), "eyebrows-angle-up": 0.4, **both("eye-{side}-closure", 0.35),
+        "mouth-corner-puller": 0.0, "mouth-depression": 1.0, "mouth-eversion": 0.4, "mouth-angles-down": 0.4,
+    },
+    # Brows high and arched, eyes wide, and the jaw dropped into a round, dark mouth.
+    "surprise": {
+        **both("eyebrows-{side}-up", 1.3), **both("eyebrows-{side}-inner-up", 0.7), **both("eye-{side}-opened-up", 1.0),
+        "mouth-corner-puller": 0.0, "mouth-open": 0.68, "mouth-protusion": 0.35,
+    },
+}
+FACE_UNITS = tuple(sorted({unit for face in FACES.values() for unit in face}))
+
+
+def positions(mesh: bpy.types.Mesh) -> np.ndarray:
+    """A mesh's vertex positions as (vertices, 3) meters."""
+    flat = np.empty(len(mesh.vertices) * 3, dtype=np.float32)
+    mesh.vertices.foreach_get("co", flat)
+    return flat.reshape(-1, 3)
+
+
+@dataclass
+class Expressions:
+    """What a child's expression units do to the base mesh, captured before that mesh is cut up."""
+
+    # How far each unit, at full weight, moves each vertex of the base mesh: (vertices, 3) meters.
+    units: dict[str, np.ndarray]
+    # The weight of each unit in the face the body is built with.
+    resting: dict[str, float]
+    # How the head bone lay when the units were read. A later rest pose may turn the head, and the units with it.
+    head: Matrix
+    # The parts fitted to the base mesh, each with the three base vertices every one of its vertices follows and their weights.
+    fitted: list[tuple[bpy.types.Object, np.ndarray, np.ndarray]]
+
+    def blend(self, weights: dict[str, float]) -> np.ndarray:
+        """How far a face with these unit weights is from the resting face, per base vertex.
+
+        A unit the weights do not name stays as the resting face has it.
+        """
+        return sum(
+            ((weight - self.resting.get(unit, 0.0)) * self.units[unit] for unit, weight in weights.items()),
+            np.zeros_like(next(iter(self.units.values()))),
+        )
+
+
+def capture_expressions(
+    mpfb: dict,
+    body: bpy.types.Object,
+    rig: bpy.types.Object,
+    morphs: dict,
+    units: tuple[str, ...],
+) -> Expressions:
+    """Reads the expression units off the freshly built base mesh and numbers its vertices."""
+    targets = mpfb["TargetService"]
+    rest = positions(body.data)
+    moves: dict[str, np.ndarray] = {}
+    for unit in units:
+        # Found the way build_body() finds the resting face's own units, so a blend can take those away exactly.
+        path = targets.target_full_path(unit)
+        if not path:
+            raise SystemExit(f"MPFB expression unit {unit} is missing")
+        key = targets.load_target(body, path, weight=0.0, name=unit)
+        moved = np.empty(rest.size, dtype=np.float32)
+        key.data.foreach_get("co", moved)
+        moves[unit] = moved.reshape(-1, 3) - rest
+    body.shape_key_clear()
+    numbers = body.data.attributes.new(BASE_VERTEX, "INT", "POINT")
+    numbers.data.foreach_set("value", np.arange(len(rest), dtype=np.int32))
+    return Expressions(
+        units=moves,
+        resting={unit: float(morphs.get(unit, 0.0)) for unit in units},
+        head=rig.data.bones["head"].matrix_local.to_3x3(),
+        fitted=[],
+    )
+
+
+def follow_base_mesh(mpfb: dict, expressions: Expressions, obj: bpy.types.Object, part: tuple[str, str, str]) -> None:
+    """Notes how a part fitted to the base mesh, such as the eyebrows, follows it.
+
+    MakeHuman hangs each vertex of such a part on three vertices of the base
+    mesh; the part takes its share of an expression from the same three.
+    """
+    subdir, fragment, _ = part
+    fit = importlib.import_module(f"{MPFB_MODULE}.entities.clothes.mhclo").Mhclo()
+    fit.load(str(asset_path(mpfb, subdir, fragment)))
+    if len(fit.verts) != len(obj.data.vertices):
+        raise SystemExit(f"{fragment} fits {len(fit.verts)} vertices, but its mesh has {len(obj.data.vertices)}")
+    order = sorted(fit.verts)
+    expressions.fitted.append((
+        obj,
+        np.array([fit.verts[index]["verts"] for index in order], dtype=np.int32),
+        np.array([fit.verts[index]["weights"] for index in order], dtype=np.float32),
+    ))
+
+
+def forget_base_vertices(obj: bpy.types.Object) -> None:
+    """Marks every vertex of a mesh as no longer one of the base mesh's, after an edit that moved or merged them."""
+    numbers = obj.data.attributes.get(BASE_VERTEX)
+    if numbers:
+        numbers.data.foreach_set("value", np.full(len(obj.data.vertices), -1, dtype=np.int32))
+
+
+def add_shape_key(obj: bpy.types.Object, name: str, offsets: np.ndarray) -> None:
+    """A shape key that moves each vertex by its offset, left at rest."""
+    if not obj.data.shape_keys:
+        obj.shape_key_add(name="Basis", from_mix=False)
+    key = obj.shape_key_add(name=name, from_mix=False)
+    offsets = np.where(np.linalg.norm(offsets, axis=1, keepdims=True) < STILL, 0.0, offsets)
+    key.data.foreach_set("co", (positions(obj.data) + offsets).astype(np.float32).ravel())
+    key.value = 0.0
+
+
+# Cloth lying on the face moves with the skin under it while it is this close, in
+# meters, and less and less out to twice as far.
+DRAPE_REACH = 0.03
+
+
+def skin_offsets(obj: bpy.types.Object, blends: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+    """The skin's share of each blend: what is left of the base mesh, by the numbers its vertices still carry."""
+    mesh = obj.data
+    numbers = np.empty(len(mesh.vertices), dtype=np.int32)
+    mesh.attributes[BASE_VERTEX].data.foreach_get("value", numbers)
+    kept = numbers >= 0
+    offsets: dict[str, np.ndarray] = {}
+    for name, blend in blends.items():
+        offsets[name] = np.zeros((len(numbers), 3), dtype=np.float32)
+        offsets[name][kept] = blend[numbers[kept]]
+    return offsets
+
+
+def add_expressions(
+    expressions: Expressions,
+    rig: bpy.types.Object,
+    body: bpy.types.Object,
+    faces: dict[str, dict[str, float]],
+    *,
+    draped: tuple[bpy.types.Object, ...] = (),
+) -> None:
+    """Gives the finished model its faces: one shape key per entry of faces on every mesh a face moves.
+
+    faces maps a name to the unit weights of that face. The skin takes each
+    blend by its base vertex numbers. The parts fitted to the base mesh take
+    it from the vertices they follow, and draped names the cloth lying on the
+    face (a hat's cuff, a scarf), which takes it from the skin beneath.
+    """
+    # The head may have been turned into a new rest pose since the units were read.
+    turned = np.array(rig.data.bones["head"].matrix_local.to_3x3() @ expressions.head.inverted(), dtype=np.float32)
+    blends = {name: expressions.blend(weights) @ turned.T for name, weights in faces.items()}
+    skin = skin_offsets(body, blends)
+
+    # What the cloth lies on: the skin as it rests, in triangles.
+    mesh = body.data
+    mesh.calc_loop_triangles()
+    triangles = np.array([triangle.vertices[:] for triangle in mesh.loop_triangles], dtype=np.int32)
+    corners = positions(mesh)
+    surface = BVHTree.FromPolygons([Vector(co) for co in corners], [tuple(triangle) for triangle in triangles])
+    lying: list[tuple[bpy.types.Object, np.ndarray, np.ndarray]] = []
+    for cloth in draped:
+        follows = np.zeros((len(cloth.data.vertices), 3), dtype=np.int32)
+        shares = np.zeros((len(cloth.data.vertices), 3), dtype=np.float32)
+        for vertex in cloth.data.vertices:
+            location, _, index, distance = surface.find_nearest(vertex.co)
+            if location is None or distance >= 2.0 * DRAPE_REACH:
+                continue
+            a, b, c = (Vector(corners[corner]) for corner in triangles[index])
+            # The nearest point's barycentric coordinates in its triangle.
+            across, along, to = b - a, c - a, location - a
+            d00, d01, d11 = across.dot(across), across.dot(along), along.dot(along)
+            d20, d21 = to.dot(across), to.dot(along)
+            area = d00 * d11 - d01 * d01
+            if area < 1e-14:
+                continue
+            v, w = (d11 * d20 - d01 * d21) / area, (d00 * d21 - d01 * d20) / area
+            near = min(max(2.0 - distance / DRAPE_REACH, 0.0), 1.0)
+            follows[vertex.index] = triangles[index]
+            shares[vertex.index] = np.array((1.0 - v - w, v, w)) * near
+        lying.append((cloth, follows, shares))
+
+    for name in faces:
+        add_shape_key(body, name, skin[name])
+        for obj, follows, shares in expressions.fitted:
+            add_shape_key(obj, name, np.einsum("vk,vkc->vc", shares, blends[name][follows]))
+        for obj, follows, shares in lying:
+            add_shape_key(obj, name, np.einsum("vk,vkc->vc", shares, skin[name][follows]))
+
+
+def show_face(meshes: list[bpy.types.Object], name: str | None) -> None:
+    """Sets one face on every mesh that carries it, and clears every other face; None is the resting face."""
+    for obj in meshes:
+        if obj.data.shape_keys:
+            for key in obj.data.shape_keys.key_blocks[1:]:
+                key.value = 1.0 if key.name == name else 0.0
+
+
+# -----------------------------------------------------------------------------
 # Textures
 
 
@@ -350,6 +607,171 @@ def uv_coverage(mesh: bpy.types.Mesh, size: int, margin: int) -> np.ndarray:
     return covered
 
 
+# The inside of the mouth, as a share of the skin tone: so dark that an open
+# mouth is a plain dark shape on every tone, with nothing in it to take for a tongue.
+MOUTH_LINING = (0.07, 0.022, 0.02)
+
+
+def inside_mouth(body: bpy.types.Object) -> list[int]:
+    """The faces of the skin behind the closed lips: the backs of the lips and the whole lining they hide.
+
+    A face is hidden when it cannot be seen from in front while the face
+    rests, because something is in the way. The hidden faces just behind the
+    lips are the mouth's, and so is every hidden face that joins them: the
+    lining runs on from there, up to the palate and down under the tongue,
+    and stops at the lips, which can be seen.
+    """
+    mesh = body.data
+    lips = body.vertex_groups["lips"].index
+    on_lips = [vertex.co for vertex in mesh.vertices if any(item.group == lips for item in vertex.groups)]
+    low = Vector(min(co[axis] for co in on_lips) for axis in range(3))
+    high = Vector(max(co[axis] for co in on_lips) for axis in range(3))
+    surface = BVHTree.FromPolygons(
+        [vertex.co.copy() for vertex in mesh.vertices], [tuple(polygon.vertices) for polygon in mesh.polygons],
+    )
+    forward = Vector((0.0, -1.0, 0.0))
+
+    def hidden(polygon: bpy.types.MeshPolygon) -> bool:
+        # Only the head around the mouth is asked: the back of the head is hidden from the front too.
+        center = polygon.center
+        if not (abs(center.x) < high.x + 0.03 and low.z - 0.05 < center.z < high.z + 0.04 and low.y < center.y < high.y + 0.09):
+            return False
+        return surface.ray_cast(center + forward * 0.0006, forward, 0.12)[0] is not None
+
+    def behind_lips(polygon: bpy.types.MeshPolygon) -> bool:
+        center = polygon.center
+        return low.x < center.x < high.x and low.z < center.z < high.z and center.y < high.y + 0.01
+
+    out_of_sight = {polygon.index for polygon in mesh.polygons if hidden(polygon)}
+    neighbors: dict[tuple[int, int], list[int]] = {}
+    for index in out_of_sight:
+        for edge in mesh.polygons[index].edge_keys:
+            neighbors.setdefault(edge, []).append(index)
+    inside = {index for index in out_of_sight if behind_lips(mesh.polygons[index])}
+    if not inside:
+        raise SystemExit("Found nothing behind the lips; the mouth's lining cannot be painted")
+    reached = list(inside)
+    while reached:
+        for edge in mesh.polygons[reached.pop()].edge_keys:
+            for index in neighbors[edge]:
+                if index not in inside:
+                    inside.add(index)
+                    reached.append(index)
+    return sorted(inside)
+
+
+# How far the mouth's lining is drawn back from the skin in front of it, in
+# meters, and how much narrower and lower it is made deep in the head.
+LINING_TUCK = 0.009
+LINING_NARROWING = 0.4
+
+
+def tuck_mouth_lining(body: bpy.types.Object) -> None:
+    """Draws the lining of the mouth back from the skin of the face.
+
+    In the base mesh the backs of the lips and the cheeks' lining lie a few
+    millimeters under the skin. An expression that presses the lips together
+    moves the skin through them, and the lining, painted dark, would show on
+    the face. Everything the lips hide is moved back and drawn in toward the
+    middle of the mouth, except where it joins the lips, so the skin has room
+    to move. report_faces() checks that it has enough.
+    """
+    mesh = body.data
+    hidden = set(inside_mouth(body))
+    inside: set[int] = set()
+    outside: set[int] = set()
+    edges: dict[int, set[int]] = {}
+    for polygon in mesh.polygons:
+        (inside if polygon.index in hidden else outside).update(polygon.vertices)
+        if polygon.index in hidden:
+            for start, end in polygon.edge_keys:
+                edges.setdefault(start, set()).add(end)
+                edges.setdefault(end, set()).add(start)
+    # How many edges of lining lie between a vertex and the lips it hangs from: none on the lips themselves.
+    steps = {index: 0 for index in inside & outside}
+    front = list(steps)
+    while front:
+        following = []
+        for index in front:
+            for neighbor in edges[index]:
+                if neighbor not in steps:
+                    steps[neighbor] = steps[index] + 1
+                    following.append(neighbor)
+        front = following
+    lips = [mesh.vertices[index].co for index, step in steps.items() if step == 0]
+    if not lips:
+        raise SystemExit("The mouth's lining does not join the lips; it cannot be drawn back from them")
+    middle = sum(lips, Vector()) / len(lips)
+    back = max(co.y for co in lips)
+    for index, step in steps.items():
+        co = mesh.vertices[index].co
+        share = min(step / 2.0, 1.0)
+        deep = ease(min(max((co.y - back) / 0.015, 0.0), 1.0))
+        co.y += LINING_TUCK * share
+        co.x = middle.x + (co.x - middle.x) * (1.0 - LINING_NARROWING * share * deep)
+        co.z = middle.z + (co.z - middle.z) * (1.0 - LINING_NARROWING * share * deep)
+    mesh.update()
+
+
+def lining_showing(body: bpy.types.Object, hidden: set[int]) -> int:
+    """Counts the lines of sight to the lower face that meet the mouth's lining where skin should be.
+
+    Looked at from the front, from above, and from either side, the lining
+    may be seen through parted lips, with nothing behind it but the back of
+    the head. Where it shows with the skin of the face just behind it, it has
+    come through the face. Measured in the pose and face the body is in.
+    """
+    mesh = body.evaluated_get(bpy.context.evaluated_depsgraph_get()).data
+    lips = body.vertex_groups["lips"].index
+    on_lips = [vertex.co for vertex in mesh.vertices if any(item.group == lips for item in vertex.groups)]
+    low = Vector(min(co[axis] for co in on_lips) for axis in range(3))
+    high = Vector(max(co[axis] for co in on_lips) for axis in range(3))
+    surface = BVHTree.FromPolygons(
+        [vertex.co.copy() for vertex in mesh.vertices], [tuple(polygon.vertices) for polygon in mesh.polygons],
+    )
+    showing = 0
+    for toward in ((0.0, 1.0, 0.0), (0.0, 1.0, -0.45), (0.5, 1.0, 0.0), (-0.5, 1.0, 0.0)):
+        direction = Vector(toward).normalized()
+        x = low.x - 0.03
+        while x <= high.x + 0.03:
+            z = low.z - 0.035
+            while z <= high.z + 0.03:
+                aim_at = Vector((x, (low.y + high.y) / 2.0, z))
+                place, _, index, _ = surface.ray_cast(aim_at - direction * 0.3, direction)
+                if place is not None and index in hidden:
+                    # Whatever the sight line meets next, within the thickness of a cheek.
+                    behind, normal, following, _ = surface.ray_cast(place + direction * 0.0002, direction, 0.02)
+                    if behind is not None and following not in hidden and normal.dot(direction) < 0.0:
+                        showing += 1
+                z += 0.0025
+            x += 0.0025
+    return showing
+
+
+def paint_faces(mask: np.ndarray, mesh: bpy.types.Mesh, faces: list[int]) -> None:
+    """Marks the texels inside the given faces of a mesh, exactly: no texel of a neighboring face."""
+    size = mask.shape[0]
+    uvs = np.empty(len(mesh.loops) * 2, dtype=np.float32)
+    mesh.uv_layers.active.data.foreach_get("uv", uvs)
+    uvs = uvs.reshape(-1, 2) * size
+    for index in faces:
+        polygon = mesh.polygons[index]
+        corners = uvs[polygon.loop_start:polygon.loop_start + polygon.loop_total]
+        x0, y0 = np.floor(corners.min(axis=0)).astype(int)
+        x1, y1 = np.ceil(corners.max(axis=0)).astype(int) + 1
+        x0, y0, x1, y1 = max(x0, 0), max(y0, 0), min(x1, size), min(y1, size)
+        if x1 <= x0 or y1 <= y0:
+            continue
+        # A texel is inside a convex face when its middle is on one side of every edge.
+        xs, ys = np.meshgrid(np.arange(x0, x1) + 0.5, np.arange(y0, y1) + 0.5)
+        sides = [
+            (end[0] - start[0]) * (ys - start[1]) - (end[1] - start[1]) * (xs - start[0])
+            for start, end in zip(corners, np.roll(corners, -1, axis=0))
+        ]
+        inside = np.all([side >= 0 for side in sides], axis=0) | np.all([side <= 0 for side in sides], axis=0)
+        mask[y0:y1, x0:x1] |= inside
+
+
 def skin_texture(
     mpfb: dict,
     body: bpy.types.Object,
@@ -363,7 +785,10 @@ def skin_texture(
 
     Only the texels the visible skin uses are kept. Everything the clothes cover
     is flattened, so no unclothed body texture ships in the file. ears is the
-    ears' own mesh, on a model that keeps them apart from the body.
+    ears' own mesh, on a model that keeps them apart from the body. The packs
+    do not paint the inside of the mouth for looking into, so everything
+    behind the lips is painted a mouth's dark here. (No teeth are modeled: an
+    open mouth is a dark shape, as a child draws it.)
     """
     subdir, fragment, filename = source
     pixels = load_pixels(asset_path(mpfb, subdir, fragment).parent / filename, size)
@@ -376,6 +801,15 @@ def skin_texture(
     reference = np.percentile(linear[used], 75, axis=0)
     neutral = np.clip(linear / reference, 0.0, 1.0)
     neutral[~used] = 1.0
+    # Everything the closed lips hide goes dark: the lining, which the packs
+    # leave unpainted or pale, and the backs of the lips, which are lip-red
+    # and would show as a tongue in an open mouth. So do the texels beside
+    # them, where the two would blend.
+    lining = np.zeros((size, size), dtype=bool)
+    paint_faces(lining, body.data, inside_mouth(body))
+    for axis in (0, 1):
+        lining = lining | np.roll(lining, 1, axis) | np.roll(lining, -1, axis)
+    neutral[lining] = MOUTH_LINING
     pixels[..., :3] = linear_to_srgb(neutral)
     pixels[..., 3] = 1.0
     return save_pixels(name, pixels, alpha=False)
@@ -1056,6 +1490,7 @@ def lighten_body(body: bpy.types.Object, head: Head, knee: float, detail: float 
     hands = duplicate(body, "hands")
     keep_vertices(hands, lambda vertex, layer: vertex.co.z < head.shoulders)
     simplify(hands, detail)
+    forget_base_vertices(hands)  # Thinning merges vertices, and no expression reaches the hands.
     keep_vertices(body, lambda vertex, layer: vertex.co.z >= head.shoulders)
     return join([body, hands], body.name)
 
@@ -1068,10 +1503,13 @@ def build_player(mpfb: dict) -> dict[str, bpy.types.Object]:
     body = build_body(mpfb)
     rig = mpfb["HumanService"].add_builtin_rig(body, "game_engine", import_weights=True)
     rig.name = rig.data.name = "player_rig"
+    expressions = capture_expressions(mpfb, body, rig, CHILD_TARGETS, FACE_UNITS)
 
     eyes = add_part(mpfb, body, EYES)
     brows = add_part(mpfb, body, BROWS)
     lashes = add_part(mpfb, body, LASHES)
+    follow_base_mesh(mpfb, expressions, brows, BROWS)
+    follow_base_mesh(mpfb, expressions, lashes, LASHES)
     hair_boy = add_part(mpfb, body, HAIR_BOY)
     hair_girl = add_part(mpfb, body, HAIR_GIRL)
     suit = add_part(mpfb, body, SUIT)
@@ -1124,6 +1562,7 @@ def build_player(mpfb: dict) -> dict[str, bpy.types.Object]:
     }
     parts["player_ear_pair"] = ears = split_ears(body)
     parts["player_body"] = body = lighten_body(body, head, knee)
+    tuck_mouth_lining(body)
     # Small on screen and simple in shape: half the faces lose nothing visible.
     for obj in (ears, shoes, leggings):
         simplify(obj, 0.5)
@@ -1162,7 +1601,7 @@ def build_player(mpfb: dict) -> dict[str, bpy.types.Object]:
     assign(parts["player_scarf_wrap"], scarf)
     assign(parts["player_scarf_drape"], scarf)
 
-    return {"rig": rig, **parts}
+    return {"rig": rig, "expressions": expressions, **parts}
 
 
 # -----------------------------------------------------------------------------
@@ -1280,6 +1719,8 @@ def finish_clip(rig: bpy.types.Object, action: bpy.types.Action) -> None:
     track = rig.animation_data.nla_tracks.new()
     track.name = action.name
     track.strips.new(action.name, 1, action)
+    # Parked clips stay silent, so the rig rests, and plays one clip alone, while it is checked and rendered.
+    track.mute = True
     rig.animation_data.action = None
     reset_pose(rig)
 
@@ -1506,6 +1947,229 @@ def animate_idle(rig: bpy.types.Object) -> None:
 
 
 # -----------------------------------------------------------------------------
+# Emotions: the body
+#
+# Each emotion has one clip, named for it, that holds the emotion's posture and
+# keeps it alive: a loop in place, like the idle. The game fades from the idle
+# into it and back, so no clip has to begin or end in the relaxed stand. The
+# face is not in the clip: it is the morph target of the same name (see
+# Expressions), so the game can show a face alone or a face with its body.
+#
+# The tone is a young child's and stays gentle: anger is stiff arms and a small
+# stamp, never a raised hand, and fear is shrinking back with the hands held
+# close, never terror.
+
+
+@dataclass(frozen=True)
+class Foot:
+    """Where a foot is, measured from where it rests: meters forward and up, and degrees its toes point down."""
+
+    ahead: float = 0.0
+    up: float = 0.0
+    pitch: float = 0.0
+
+
+def stand_over_feet(
+    rig: bpy.types.Object,
+    legs: dict[str, Leg],
+    *,
+    hips: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    feet: dict[str, Foot] | None = None,
+) -> None:
+    """Poses the pelvis and the legs so the body moves over feet that stay where they are.
+
+    The pelvis moves by hips: meters toward +X, forward, and up. Each leg is
+    solved from its ankle, as the walk's are, so a foot only moves if feet
+    says so.
+    """
+    bones = rig.pose.bones
+    across, forward, rise = hips
+    shift(bones["pelvis"], (across, -forward, rise))
+    for side, leg in legs.items():
+        foot = (feet or {}).get(side, Foot())
+        hip = leg.hip_height + rise
+        thigh_lean, shin_lean = leg_angles(leg, hip, leg.ankle_ahead + foot.ahead - forward, leg.ankle_height + foot.up)
+        thigh = -math.degrees(thigh_lean - leg.thigh_lean)
+        shin = -math.degrees(shin_lean - leg.shin_lean)
+        # The legs tilt against a shift to the side, so the feet stay under their own tracks.
+        tilt = math.degrees(math.atan2(across, hip))
+        turn(bones[f"thigh_{side}"], ("X", thigh), ("Y", tilt))
+        turn(bones[f"calf_{side}"], ("X", shin - thigh))
+        # The foot undoes the leg's turns in reverse, then takes its own pitch.
+        turn(bones[f"foot_{side}"], ("X", foot.pitch), ("Y", -tilt), ("X", -shin))
+
+
+Direction = tuple[float, float, float]
+
+
+class Puppet:
+    """A rig being posed for one frame of an emotion: the few moves the postures are made of.
+
+    Directions and angles follow this section's conventions, and whatever is
+    written for a side is written for the left one (+X): the right mirrors it.
+    """
+
+    def __init__(self, rig: bpy.types.Object) -> None:
+        self.rig = rig
+        self.bones = rig.pose.bones
+        self.legs = {side: measure_leg(rig, side) for side in ("l", "r")}
+
+    def stand(self, across: float = 0.0, forward: float = 0.0, rise: float = 0.0, **feet: Foot) -> None:
+        """Moves the hips, in meters, over the feet; l= and r= move a foot."""
+        stand_over_feet(self.rig, self.legs, hips=(across, forward, rise), feet=feet)
+
+    def trunk(self, lean: float = 0.0, twist: float = 0.0, tilt: float = 0.0) -> None:
+        """Bends the spine, in degrees over its whole length: forward, turned toward the left, and tipped toward the left."""
+        for bone, share in (("spine_01", 0.25), ("spine_02", 0.35), ("spine_03", 0.4)):
+            turn(self.bones[bone], ("X", lean * share), ("Y", tilt * share), ("Z", twist * share))
+
+    def head(self, nod: float = 0.0, look: float = 0.0, tilt: float = 0.0) -> None:
+        """Turns the head on the neck, in degrees: chin down, toward the left, and tipped toward the left shoulder."""
+        for bone, share in (("neck_01", 0.4), ("head", 0.6)):
+            turn(self.bones[bone], ("X", nod * share), ("Y", tilt * share), ("Z", look * share))
+
+    def shoulders(self, lift: float, left: float | None = None) -> None:
+        """Raises the shoulders by degrees; left raises that one by its own amount."""
+        for side, sign, degrees in (("l", 1.0, lift if left is None else left), ("r", -1.0, lift)):
+            turn(self.bones[f"clavicle_{side}"], ("Y", -sign * degrees))
+
+    def arm(self, side: str, upper: Direction, lower: Direction) -> None:
+        """Points one arm's upper arm and forearm along directions given relative to the chest."""
+        sign = 1.0 if side == "l" else -1.0
+        turned = aim(self.bones[f"upperarm_{side}"], (sign * upper[0], upper[1], upper[2]))
+        aim(self.bones[f"lowerarm_{side}"], (sign * lower[0], lower[1], lower[2]), turned)
+
+    def arms(self, upper: Direction, lower: Direction) -> None:
+        for side in ("l", "r"):
+            self.arm(side, upper, lower)
+
+
+def wave(phase: float, cycles: float = 1.0, lead: float = 0.0) -> float:
+    """A sine through cycles turns of the loop, so the clip closes on itself."""
+    return math.sin(2.0 * math.pi * (cycles * phase + lead))
+
+
+def pose_anger(puppet: Puppet, phase: float) -> None:
+    """Stiff and squared up: straight arms pushed down and back, the chin lowered, and a small stamp of one foot."""
+    huff = wave(phase, 2.0)
+    # The right foot lifts a little and comes down once in the loop.
+    stamp = math.sin(math.pi * min(max((phase - 0.55) / 0.25, 0.0), 1.0))
+    puppet.stand(forward=0.012, rise=-0.006 - 0.004 * stamp, r=Foot(up=0.035 * stamp, pitch=6.0 * stamp))
+    puppet.trunk(lean=7.0 + 1.2 * huff)
+    puppet.head(nod=13.0 - 1.0 * huff)
+    puppet.shoulders(9.0 + 2.0 * huff)
+    # A tremor of held tension runs through the arms.
+    shake = 0.012 * wave(phase, 8.0)
+    puppet.arm("l", (0.38 + shake, 0.22, -1.0), (0.38 + shake, 0.08, -1.0))
+    puppet.arm("r", (0.38 - shake, 0.22, -1.0), (0.38 - shake, 0.08, -1.0))
+
+
+def pose_disgust(puppet: Puppet, phase: float) -> None:
+    """Keeping something nasty away: both hands push it off to one side while the head and chest turn and lean the other way."""
+    refuse = wave(phase, 2.0)
+    puppet.stand(across=0.02, forward=-0.025, rise=-0.008)
+    puppet.trunk(lean=-5.0, twist=16.0, tilt=8.0)
+    puppet.head(nod=-2.0, look=28.0 + 4.0 * refuse, tilt=6.0)
+    puppet.shoulders(5.0)
+    # The thing is low on the child's right: the right arm reaches out at it, and the left crosses the chest to join it.
+    push = 0.04 * refuse
+    puppet.arm("r", (0.75, -0.5, -0.35), (0.8, -0.5 + push, -0.05))
+    puppet.arm("l", (-0.15, -0.9, -0.42), (-0.7, -0.68 + push, 0.12))
+
+
+def pose_fear(puppet: Puppet, phase: float) -> None:
+    """Shrinking back: a step away, the knees bent, the shoulders up, and both hands held close under the chin, trembling."""
+    tremble = wave(phase, 6.0)
+    breath = wave(phase, 1.0)
+    puppet.stand(forward=-0.045, rise=-0.028 + 0.002 * breath, l=Foot(ahead=-0.07))
+    puppet.trunk(lean=6.0 + 0.6 * tremble, twist=-4.0)
+    puppet.head(nod=-3.0 + 0.5 * tremble, look=-3.0, tilt=-3.0)
+    puppet.shoulders(15.0 + 1.0 * breath)
+    quiver = 0.02 * tremble
+    # The hands come close under the chin without touching each other.
+    puppet.arms((0.38, -0.5, -0.8), (-0.26 + quiver, -0.68, 0.6))
+
+
+def pose_happiness(puppet: Puppet, phase: float) -> None:
+    """A little jump for joy with both arms thrown up."""
+    # Half the loop is the hop; before and after it the knees give.
+    air = math.sin(math.pi * min(max((phase - 0.3) / 0.45, 0.0), 1.0))
+    crouch = 0.5 * (1.0 - math.cos(2.0 * math.pi * min(max(phase / 0.3, 0.0), 1.0))) if phase < 0.3 else (
+        0.5 * (1.0 - math.cos(2.0 * math.pi * min(max((phase - 0.75) / 0.25, 0.0), 1.0))) if phase > 0.75 else 0.0
+    )
+    lift = 0.05 * air
+    feet = Foot(up=lift, pitch=24.0 * air)
+    puppet.stand(rise=lift - 0.022 * crouch, l=feet, r=feet)
+    puppet.trunk(lean=-5.0 + 3.0 * crouch)
+    puppet.head(nod=-8.0 + 3.0 * crouch, tilt=3.0 * wave(phase))
+    puppet.shoulders(10.0)
+    pump = 0.1 * air
+    puppet.arms((0.62, -0.1, 0.78 + pump), (0.28, -0.12, 1.0))
+
+
+def pose_sadness(puppet: Puppet, phase: float) -> None:
+    """Drooping: the head hangs, the shoulders round forward, and the arms fall limp."""
+    sigh = wave(phase, 1.0)
+    sway = wave(phase, 1.0, 0.25)
+    puppet.stand(across=0.004 * sway, rise=-0.012 - 0.003 * sigh)
+    puppet.trunk(lean=13.0 + 1.5 * sigh, tilt=1.0 * sway)
+    # Bowed, but not so far that the face is lost from the playroom's camera above.
+    puppet.head(nod=19.0 + 1.5 * sigh, look=3.0 * sway, tilt=4.0)
+    puppet.shoulders(-5.0)
+    # Limp arms hang straight down from the rounded shoulders, in front of the body.
+    puppet.arms((0.68, -0.36, -1.0), (0.52, -0.5, -1.0))
+
+
+def pose_surprise(puppet: Puppet, phase: float) -> None:
+    """Caught off guard: rocked back on the heels with both hands flown up and out, held."""
+    breath = wave(phase, 2.0)
+    settle = wave(phase, 1.0)
+    puppet.stand(forward=-0.022, rise=0.004 + 0.002 * breath)
+    puppet.trunk(lean=-7.0 - 0.6 * breath)
+    puppet.head(nod=-6.0, look=1.5 * settle)
+    puppet.shoulders(12.0 + 1.0 * breath)
+    puppet.arms((0.95, -0.2, -0.5), (0.6, -0.45, 0.62 + 0.03 * breath))
+
+
+# Each emotion's clip: its length in frames and its pose at a phase (0..1) of the loop.
+EMOTION_POSES = {
+    "anger": (60, pose_anger),
+    "disgust": (60, pose_disgust),
+    "fear": (30, pose_fear),
+    "happiness": (30, pose_happiness),
+    "sadness": (90, pose_sadness),
+    "surprise": (60, pose_surprise),
+}
+EMOTION_BONES = limb_names(LEG_BONES) + limb_names(("clavicle", *ARM_BONES)) + TRUNK_BONES
+
+
+def animate_emotions(rig: bpy.types.Object) -> None:
+    """Writes one clip per emotion, each a loop that holds the emotion's posture."""
+    puppet = Puppet(rig)
+    for name, (frames, pose) in EMOTION_POSES.items():
+        action = new_clip(rig, name)
+        for frame in range(frames + 1):
+            reset_pose(rig)
+            pose(puppet, frame / frames)
+            key(rig, frame + 1, EMOTION_BONES, location=("pelvis",))
+        finish_clip(rig, action)
+
+
+def pose_at(rig: bpy.types.Object, clip: str | None, share: float = 0.0) -> None:
+    """Holds the rig at a share (0..1) of a clip, or back at rest for None."""
+    scene = bpy.context.scene
+    if clip is None:
+        rig.animation_data.action = None
+        reset_pose(rig)
+        scene.frame_set(1)
+    else:
+        action = bpy.data.actions[clip]
+        rig.animation_data.action = action
+        scene.frame_set(1 + round(share * (action.frame_range[1] - 1)))
+    bpy.context.view_layer.update()
+
+
+# -----------------------------------------------------------------------------
 # Clearance: the hands and forearms must hang clear of the body
 
 ARM_GROUPS = ("upperarm", "lowerarm", "hand", "index", "middle", "ring", "pinky", "thumb")
@@ -1517,11 +2181,17 @@ BODY_PARTS = {
 }
 
 
-def weight_share(obj: bpy.types.Object, rig: bpy.types.Object, prefixes: tuple[str, ...]) -> list[float]:
-    """For each vertex, the share of its skin weight that belongs to bones with these name prefixes."""
+def weight_share(obj: bpy.types.Object, rig: bpy.types.Object, prefixes: tuple[str, ...], side: str = "") -> list[float]:
+    """For each vertex, the share of its skin weight that belongs to bones with these name prefixes.
+
+    side narrows them to the bones of one side of the body, l or r.
+    """
     # The meshes also carry vertex groups that are not bones; only bones move a vertex.
     bones = {group.index for group in obj.vertex_groups if group.name in rig.data.bones}
-    chosen = {group.index for group in obj.vertex_groups if group.index in bones and group.name.startswith(prefixes)}
+    chosen = {
+        group.index for group in obj.vertex_groups
+        if group.index in bones and group.name.startswith(prefixes) and group.name.endswith(f"_{side}" if side else "")
+    }
     shares = []
     for vertex in obj.data.vertices:
         total = sum(item.weight for item in vertex.groups if item.group in bones)
@@ -1543,6 +2213,22 @@ class Clearance:
         self.body, self.top = body, top
         body, top = player[body], player[top]
         self.hand_points = [index for index, share in enumerate(weight_share(body, rig, FOREARM_GROUPS)) if share > 0.5]
+        # The head and neck, which a raised hand could reach.
+        above = weight_share(body, rig, ("head", "neck"))
+        self.head_faces = [
+            polygon.index for polygon in body.data.polygons
+            if all(above[index] > 0.5 for index in polygon.vertices)
+        ]
+        # Each arm by itself, skin and sleeve, for a pose that brings one near the other.
+        self.arms: dict[str, dict[str, tuple[list[int], list[int]]]] = {}
+        for side in ("l", "r"):
+            self.arms[side] = {}
+            for name, obj in ((self.body, body), (self.top, top)):
+                share = weight_share(obj, rig, ARM_GROUPS, side)
+                self.arms[side][name] = (
+                    [index for index, part in enumerate(share) if part > 0.5],
+                    [polygon.index for polygon in obj.data.polygons if all(share[index] > 0.5 for index in polygon.vertices)],
+                )
         self.sleeve_points = [index for index, share in enumerate(weight_share(top, rig, FOREARM_GROUPS)) if share > 0.5]
         arm = weight_share(top, rig, ARM_GROUPS)
         self.torso_faces = [
@@ -1550,11 +2236,12 @@ class Clearance:
             if all(arm[index] < 0.2 for index in polygon.vertices)
         ]
 
-    def measure(self, bottoms: tuple[str, ...]) -> tuple[float, str]:
+    def measure(self, bottoms: tuple[str, ...], *, head: bool = False) -> tuple[float, str]:
         """The smallest gap in meters in the current pose, and what it is between.
 
-        bottoms names the parts the look shows below the top. The gap is
-        negative when something has sunk into the body.
+        bottoms names the parts the look shows below the top; head also
+        measures to the head and neck, for a pose that raises the hands. The
+        gap is negative when something has sunk into the body.
         """
         dependency = bpy.context.evaluated_depsgraph_get()
 
@@ -1570,6 +2257,11 @@ class Clearance:
         for name in bottoms:
             surfaces[name.replace(prefix, "the ").replace("_", " ")] = BVHTree.FromObject(self.player[name], dependency)
         body = posed(self.body)
+        if head:
+            surfaces["the head"] = BVHTree.FromPolygons(
+                [vertex.co.copy() for vertex in body.vertices],
+                [tuple(body.polygons[index].vertices) for index in self.head_faces],
+            )
         movers = {
             "a hand": [body.vertices[index].co for index in self.hand_points],
             "a forearm": [top.vertices[index].co for index in self.sleeve_points],
@@ -1585,8 +2277,33 @@ class Clearance:
         return smallest
 
 
+    def arms_apart(self) -> float:
+        """The smallest gap in meters between one arm and the other in the current pose; negative when one has sunk into the other."""
+        dependency = bpy.context.evaluated_depsgraph_get()
+        posed = {name: self.player[name].evaluated_get(dependency).data for name in (self.body, self.top)}
+        smallest = math.inf
+        for mover, other in (("l", "r"), ("r", "l")):
+            surfaces = [
+                BVHTree.FromPolygons(
+                    [vertex.co.copy() for vertex in posed[name].vertices],
+                    [tuple(posed[name].polygons[index].vertices) for index in self.arms[other][name][1]],
+                )
+                for name in posed if self.arms[other][name][1]
+            ]
+            for name in posed:
+                for index in self.arms[mover][name][0]:
+                    point = posed[name].vertices[index].co
+                    for surface in surfaces:
+                        location, normal, _, distance = surface.find_nearest(point)
+                        inside = (point - location).dot(normal) < 0.0 and distance < 0.03
+                        smallest = min(smallest, -distance if inside else distance)
+        return smallest
+
+
 # The least gap, in meters, allowed between a hand or forearm and the body in any frame of any look.
 MIN_CLEARANCE = 0.02
+# An emotion may bring one arm near the other, but never into it: the least gap between them, in meters.
+MIN_ARMS_APART = 0.003
 
 
 def check_clearance(rig: bpy.types.Object, player: dict[str, bpy.types.Object]) -> dict[str, tuple[float, str]]:
@@ -1611,6 +2328,138 @@ def check_clearance(rig: bpy.types.Object, player: dict[str, bpy.types.Object]) 
         reset_pose(rig)
     scene.frame_set(1)
     return gaps
+
+
+def emotion_gaps(rig: bpy.types.Object, clearance: Clearance, bottoms: tuple[str, ...]) -> dict[str, tuple[float, str]]:
+    """The smallest gap between the arms and the body, head included, through each emotion's clip."""
+    gaps: dict[str, tuple[float, str]] = {}
+    for name, (frames, _) in EMOTION_POSES.items():
+        for frame in range(0, frames, 3):
+            pose_at(rig, name, frame / frames)
+            gaps[name] = min(gaps.get(name, (math.inf, "")), clearance.measure(bottoms, head=True))
+    pose_at(rig, None)
+    return gaps
+
+
+def emotion_arms_apart(rig: bpy.types.Object, clearance: Clearance) -> dict[str, float]:
+    """The smallest gap between one arm and the other through each emotion's clip."""
+    gaps: dict[str, float] = {}
+    for name, (frames, _) in EMOTION_POSES.items():
+        for frame in range(0, frames, 3):
+            pose_at(rig, name, frame / frames)
+            gaps[name] = min(gaps.get(name, math.inf), clearance.arms_apart())
+    pose_at(rig, None)
+    return gaps
+
+
+# How far, in meters, a foot on the floor may slide during an emotion, and how far any foot may sink into the floor.
+MAX_EMOTION_SLIDE = 0.003
+MAX_FOOT_SINK = 0.002
+
+
+def check_emotion_feet(rig: bpy.types.Object) -> dict[str, tuple[float, float]]:
+    """Plays each emotion and returns how far a foot on the floor slides and how far a foot sinks, in meters.
+
+    A clip may lift a foot (a stamp, a hop) or hold it somewhere else (a step
+    back), but while a foot is down it must stay where it is, and it must
+    never go through the floor.
+    """
+    floor = {side: (rig.data.bones[f"foot_{side}"].head_local.z, rig.data.bones[f"foot_{side}"].tail_local.z) for side in ("l", "r")}
+    results: dict[str, tuple[float, float]] = {}
+    for name, (frames, _) in EMOTION_POSES.items():
+        slide = sink = 0.0
+        down: dict[str, list[Vector]] = {"l": [], "r": []}
+        for frame in range(frames + 1):
+            pose_at(rig, name, frame / frames)
+            for side in ("l", "r"):
+                foot = rig.pose.bones[f"foot_{side}"]
+                ankle, ball = floor[side]
+                sink = max(sink, ankle - foot.head.z, ball - foot.tail.z)
+                if abs(foot.head.z - ankle) < 0.002 and abs(foot.tail.z - ball) < 0.002:
+                    down[side].append(foot.head.copy())
+        for spots in down.values():
+            slide = max([slide, *((spot - spots[0]).length for spot in spots)])
+        results[name] = (slide, sink)
+    pose_at(rig, None)
+    return results
+
+
+def report_faces(label: str, meshes: list[bpy.types.Object]) -> None:
+    """Checks every emotion's face and fails if the mouth's dark lining shows through the skin around the mouth."""
+    body = next(obj for obj in meshes if obj.name.endswith("_body"))
+    hidden = set(inside_mouth(body))
+    failed = []
+    for name in FACES:
+        show_face(meshes, name)
+        bpy.context.view_layer.update()
+        showing = lining_showing(body, hidden)
+        print(f"{'PASS' if showing == 0 else 'FAIL'} {label} {name} face: the mouth's lining shows through the skin along {showing} sight lines")
+        if showing:
+            failed.append(name)
+    show_face(meshes, None)
+    bpy.context.view_layer.update()
+    if failed:
+        raise RuntimeError(f"{label}'s {' and '.join(failed)} face pushes the skin through the lining of the mouth")
+
+
+def report_emotions(label: str, rig: bpy.types.Object, clearance: Clearance, looks: dict[str, tuple[str, ...]]) -> None:
+    """Checks every emotion's clip and fails on a sliding or sinking foot, an arm too close to the body, or one arm in the other.
+
+    looks maps a look's name to the parts it shows below the top.
+    """
+    failed = []
+    for name, (slide, sink) in check_emotion_feet(rig).items():
+        fine = slide <= MAX_EMOTION_SLIDE and sink <= MAX_FOOT_SINK
+        print(f"{'PASS' if fine else 'FAIL'} {label} {name}: a foot on the floor slides {slide * 1000:.1f} mm and sinks {sink * 1000:.1f} mm at the most")
+        if not fine:
+            failed.append(f"a foot slides or sinks during {name}")
+    for look, bottoms in looks.items():
+        for name, (gap, where) in emotion_gaps(rig, clearance, bottoms).items():
+            wears = f" in {look}" if look else ""
+            print(f"{'PASS' if gap >= MIN_CLEARANCE else 'FAIL'} {label} arms {name}{wears}: {gap * 1000:.0f} mm at the closest, between {where}")
+            if gap < MIN_CLEARANCE:
+                failed.append(f"an arm comes within {MIN_CLEARANCE * 1000:.0f} mm of the body during {name}{wears}")
+    for name, gap in emotion_arms_apart(rig, clearance).items():
+        print(f"{'PASS' if gap >= MIN_ARMS_APART else 'FAIL'} {label} arms {name}: {gap * 1000:.0f} mm between one arm and the other at the closest")
+        if gap < MIN_ARMS_APART:
+            failed.append(f"one arm sinks into the other during {name}")
+    if failed:
+        raise RuntimeError(f"{label}: " + "; ".join(failed))
+
+
+# Where in its loop each emotion is caught for a still picture.
+EMOTION_STILLS = {"anger": 0.68, "disgust": 0.12, "fear": 0.25, "happiness": 0.52, "sadness": 0.25, "surprise": 0.12}
+
+
+def render_emotions(rig: bpy.types.Object, meshes: list[bpy.types.Object], key: str, directory: Path) -> None:
+    """Saves each emotion twice into directory: `<key>-<emotion>-face.png` and `<key>-<emotion>-body.png`.
+
+    The face is the emotion's face alone, on the resting body, as the game
+    shows it close up. The body is the face with the emotion's clip.
+    `<key>-rest-*` is the resting child, for comparison. Call it after
+    setup_preview_scene().
+    """
+    scene = bpy.context.scene
+    render = scene.render
+    size = (render.resolution_x, render.resolution_y)
+    # Without it the preview's sky lights the inside of an open mouth.
+    scene.eevee.use_raytracing = True
+    skin = next(obj for obj in meshes if obj.name.endswith("_body"))
+    height = world_z_range(skin)[1]
+    face_height = height - 0.5 * (height - rig.data.bones["head"].head_local.z)
+    for name in (None, *EMOTION_POSES):
+        label = name or "rest"
+        show_face(meshes, name)
+        pose_at(rig, None)
+        render.resolution_x, render.resolution_y = 480, 480
+        shot(directory / f"{key}-{label}-face.png", 5.0, face_height, 0.62, 85.0, 0.02)
+        pose_at(rig, name, EMOTION_STILLS[name] if name else 0.0)
+        render.resolution_x, render.resolution_y = 480, 640
+        shot(directory / f"{key}-{label}-body.png", 20.0, height * 0.58, height * 2.75, 60.0, 0.06)
+    show_face(meshes, None)
+    pose_at(rig, None)
+    scene.eevee.use_raytracing = False
+    render.resolution_x, render.resolution_y = size
 
 
 # -----------------------------------------------------------------------------
@@ -1647,7 +2496,7 @@ def enlarge(rig: bpy.types.Object, meshes: list[bpy.types.Object], factor: float
     """Scales the finished, animated model about the floor under its feet."""
     scale = Matrix.Scale(factor, 4)
     for obj in meshes:
-        obj.data.transform(scale)
+        obj.data.transform(scale, shape_keys=True)
         obj.data.update()
     rig.data.transform(scale)
     # A clip's turns hold at any size; the distances it moves the pelvis grow with the body.
@@ -1670,9 +2519,15 @@ def export_model(rig: bpy.types.Object, meshes: list[bpy.types.Object], path: Pa
     for obj in [rig, *meshes]:
         for name in list(obj.keys()):
             del obj[name]
+    for obj in meshes:
+        numbers = obj.data.attributes.get(BASE_VERTEX)
+        if numbers:
+            obj.data.attributes.remove(numbers)
     if walk_speed is not None:
         rig["walk_speed"] = round(walk_speed, 3)
     bpy.context.scene.render.fps = FPS
+    for track in rig.animation_data.nla_tracks:
+        track.mute = False
     bpy.ops.object.select_all(action="DESELECT")
     rig.select_set(True)
     for obj in meshes:
@@ -1685,17 +2540,30 @@ def export_model(rig: bpy.types.Object, meshes: list[bpy.types.Object], path: Pa
         export_format="GLB",
         use_selection=True,
         export_yup=True,
-        export_apply=True,
+        # Nothing but the skeleton deforms these meshes, and applying modifiers would drop the faces' shape keys.
+        export_apply=False,
         export_materials="EXPORT",
         export_image_format="AUTO",
         export_cameras=False,
         export_lights=False,
         export_extras=True,
         export_skins=True,
-        export_morph=False,
+        # The faces: one morph target per shape key, listing only the vertices
+        # it moves. Their normals stay out of the file, where they would more
+        # than double every face: the game works them out when it loads the
+        # model (src/morph-normals.ts).
+        export_morph=True,
+        export_morph_normal=False,
+        export_morph_tangent=False,
+        export_try_sparse_sk=True,
+        export_morph_animation=False,
         export_animations=True,
-        export_animation_mode="NLA_TRACKS",
+        # One animation per action. Exported this way, rather than by NLA track,
+        # the exporter knows which joints a clip keys: it keeps those, a pose
+        # held still included, and leaves out the joints the clip never touches.
+        export_animation_mode="ACTIONS",
         export_optimize_animation_size=True,
+        export_optimize_animation_keep_anim_armature=False,
         export_anim_single_armature=True,
         # Clips start at time zero, so a loop is exactly as long as its stride.
         export_anim_slide_to_zero=True,
@@ -1832,6 +2700,10 @@ def render_preview(player: dict[str, bpy.types.Object], height: float, directory
 # 3,300 of these triangles.
 MAX_TRIANGLES = 31_000
 MAX_BYTES = 2_500_000
+# The cloth that lies on the face, and moves with the skin under it when the face changes.
+DRAPED_PARTS = ("player_beanie_knit", "player_scarf_wrap", "player_scarf_drape")
+# Every mesh an emotion's face moves.
+FACE_PARTS = ("player_body", "player_brows", "player_lashes", *DRAPED_PARTS)
 REQUIRED_NODES = (
     "player_body", "player_ear_pair", "player_hair_boy_short", "player_hair_girl_long",
     "player_bare_hair_boy_short", "player_bare_hair_girl_long", "player_top",
@@ -1852,8 +2724,13 @@ def validate_export() -> None:
     if missing:
         raise RuntimeError(f"{OUTPUT_PATH.name}: missing parts {missing}")
     clips = {action.name.split("_")[0] for action in bpy.data.actions}
-    if not {"idle", "walk"} <= clips:
-        raise RuntimeError(f"{OUTPUT_PATH.name}: expected idle and walk clips, found {sorted(clips)}")
+    if clips != {"idle", "walk", *EMOTIONS}:
+        raise RuntimeError(f"{OUTPUT_PATH.name}: expected idle, walk, and one clip per emotion, found {sorted(clips)}")
+    for name in FACE_PARTS:
+        keys = next(obj for obj in meshes if obj.name == name).data.shape_keys
+        faces = [key.name for key in keys.key_blocks[1:]] if keys else []
+        if faces != list(EMOTIONS):
+            raise RuntimeError(f"{OUTPUT_PATH.name}: {name} should carry one face per emotion, found {faces}")
 
     bpy.context.view_layer.update()
     # Vertices rather than bounding boxes: a skinned mesh's box is not filled in on import.
@@ -1879,19 +2756,26 @@ def main() -> None:
     views = Path(arguments[arguments.index("--views") + 1]) if "--views" in arguments else None
     if views:
         views.mkdir(parents=True, exist_ok=True)
+    # `-- --emotions <directory>` also saves every emotion: its face alone, and its face and body.
+    emotions = Path(arguments[arguments.index("--emotions") + 1]).resolve() if "--emotions" in arguments else None
+    if emotions:
+        emotions.mkdir(parents=True, exist_ok=True)
 
     mpfb = require_mpfb()
     reset_scene()
     player = build_player(mpfb)
     rig = player.pop("rig")
+    expressions = player.pop("expressions")
     meshes = list(player.values())
 
     relax_rest_pose(rig, meshes)
     ground(rig, meshes)
     # Rendered before the clips exist, so the preview shows the rest pose.
     render_preview(player, hatted_height(meshes), views)
+    add_expressions(expressions, rig, player["player_body"], FACES, draped=tuple(player[name] for name in DRAPED_PARTS))
     animate_idle(rig)
     animate_walk(rig)
+    animate_emotions(rig)
     slide = check_walk(rig)
     if slide > 0.006:
         raise RuntimeError(f"The planted foot slides {slide * 1000:.1f} mm during the walk")
@@ -1901,6 +2785,11 @@ def main() -> None:
         print(f"{'PASS' if gap >= MIN_CLEARANCE else 'FAIL'} arms {label}: {gap * 1000:.0f} mm at the closest, between {where}")
     if min(gap for gap, _ in gaps.values()) < MIN_CLEARANCE:
         raise RuntimeError(f"An arm comes within {MIN_CLEARANCE * 1000:.0f} mm of the body")
+    # Rendered before the emotions are checked, so a clip that fails can be looked at.
+    if emotions:
+        render_emotions(rig, meshes, OUTPUT_PATH.stem, emotions)
+    report_faces("the player", meshes)
+    report_emotions("the player", rig, Clearance(rig, player), BODY_PARTS)
     # Everything above is measured on the child at its natural height. Only now
     # is it enlarged to stand as tall as the rest of the cast.
     factor = PLAYROOM_HEIGHT / hatted_height(meshes)

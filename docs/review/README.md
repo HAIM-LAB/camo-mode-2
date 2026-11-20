@@ -136,3 +136,34 @@ sits over its character.
 The Realistic style, from the same spot: the realistic player, the sculpted
 Camo, and both friends as children of the player's age and build. Only this
 style's four character models were requested.
+
+---
+
+## Emotions
+
+The sheets in [`emotions/`](emotions/) show the six emotions of the player and
+both friends, in each style. Every picture is the running game on the keyless
+mock brain, captured through the dev-only emotions preview
+(`/?skipMenu=1&emotions`); the close-ups are lit by `createFaceLight()`, as a
+mode that zooms in on an avatar would light them. The resting child comes first
+in every row, for comparison. Camo has no emotions.
+
+- [`emotions/cartoon-faces.png`](emotions/cartoon-faces.png) and
+  [`emotions/realistic-faces.png`](emotions/realistic-faces.png): the face
+  alone, with the body in its idle. This is what a mode that teaches emotions
+  opens with, so each face has to be named without the body's help.
+- [`emotions/cartoon-bodies.png`](emotions/cartoon-bodies.png) and
+  [`emotions/realistic-bodies.png`](emotions/realistic-bodies.png): the face
+  with the emotion's posture. Anger is stiff arms and a small stamp, disgust
+  pushes something away and turns from it, fear shrinks back with the hands
+  held close, happiness jumps with the arms thrown up, sadness droops, and
+  surprise rocks back with the arms flown out.
+- [`emotions/cartoon-playroom.png`](emotions/cartoon-playroom.png) and
+  [`emotions/realistic-playroom.png`](emotions/realistic-playroom.png): one
+  whole frame from the playroom's own camera, with every avatar happy.
+- [`emotions/realistic-player-skin-tones.png`](emotions/realistic-player-skin-tones.png):
+  the realistic player's faces on the lightest and the darkest skin it can pick.
+
+All of them were reviewed for tone: a young child's emotions, drawn for clarity
+rather than intensity. Nobody raises a hand in anger, and fear is wide eyes and
+a step back.

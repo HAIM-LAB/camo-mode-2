@@ -1,14 +1,25 @@
 import { existsSync } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AnimationClip, Box3, BoxGeometry, Group, Mesh, MeshBasicMaterial, Vector3 } from 'three';
+import {
+  AnimationClip,
+  Box3,
+  BoxGeometry,
+  Float32BufferAttribute,
+  Group,
+  Mesh,
+  MeshBasicMaterial,
+  Vector3,
+} from 'three';
 import { GLTF, GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import {
   OptionalAssetLoader,
   createVisualTarget,
   normalizeModelPlacement,
+  restBounds,
   shouldNormalizeModelPlacement,
 } from '../src/assets';
-import { assetUrls } from '../src/config';
+import { CAST_ASSET_URLS, CastAssetId, assetUrls } from '../src/config';
+import { loadCastModel } from './helpers/player-model';
 
 describe('optional asset placement', () => {
   it('preserves the authored world origin for the asymmetric room and patio', () => {
@@ -43,6 +54,32 @@ describe('optional asset placement', () => {
     expect(center.x).toBeCloseTo(0);
     expect(center.z).toBeCloseTo(0);
     expect(model.scale.toArray()).toEqual([1, 1, 1]);
+  });
+});
+
+describe('a model\'s bounds', () => {
+  it('are those of the resting model, not of what its morph targets could reach', () => {
+    const geometry = new BoxGeometry(1, 1, 1);
+    const lifted = new Float32Array(geometry.getAttribute('position').count * 3).fill(5);
+    geometry.morphAttributes.position = [new Float32BufferAttribute(lifted, 3)];
+    geometry.morphTargetsRelative = true;
+    const model = new Group();
+    model.add(new Mesh(geometry, new MeshBasicMaterial()));
+
+    const bounds = restBounds(model);
+    expect(bounds.min.toArray()).toEqual([-0.5, -0.5, -0.5]);
+    expect(bounds.max.toArray()).toEqual([0.5, 0.5, 0.5]);
+  });
+
+  const SHIPPED = (Object.keys(CAST_ASSET_URLS) as (keyof typeof CAST_ASSET_URLS)[]).flatMap((style) => (
+    (Object.keys(CAST_ASSET_URLS[style]) as CastAssetId[]).map((id) => [style, id] as const)
+  ));
+
+  it.each(SHIPPED)('leave the %s %s where its file puts it: on the floor, over its origin', async (style, id) => {
+    const model = await loadCastModel(id, style);
+    normalizeModelPlacement(model);
+    // Within a few millimeters: the feet rest on the floor, and the model is not pushed off its anchor.
+    expect(Math.abs(model.position.y)).toBeLessThan(0.006);
   });
 });
 

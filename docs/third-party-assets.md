@@ -14,6 +14,7 @@ MPFB is only a build tool here. Its source code is GPL-3.0-or-later, and none of
 | --- | --- | --- | --- |
 | MakeHuman base mesh (`base.obj`), including its skirt and tights helper geometry | Head, neck, ears, and hands. The skirt and leggings are cut from the helpers; the beanie and the head scarf's wrap are layers fitted over the head. | MPFB 2.0.18 | CC0 1.0 |
 | MakeHuman morph targets | A young child's proportions and round face, a slight smile, relaxed eyes | MPFB 2.0.18 | CC0 1.0 |
+| MakeHuman expression units (the morph targets under `expression/units`) | The six emotions' faces: each is a blend of these movements of the brows, eyelids, nose, and mouth, with a few of the modeling morphs above | MPFB 2.0.18 | CC0 1.0 |
 | `game_engine` rig and skin weights | The skeleton | MPFB 2.0.18 | CC0 1.0 |
 | Skin `young_caucasian_female` | Skin detail, turned into a neutral map that the chosen tone multiplies. Every region the clothes cover is blanked. | MakeHuman system assets | CC0 1.0 |
 | Eyes `low-poly` with the `brown` iris texture | Eyes | MakeHuman system assets | CC0 1.0 |
@@ -22,13 +23,13 @@ MPFB is only a build tool here. Its source code is GPL-3.0-or-later, and none of
 | Clothes `male_casualsuit02` | Top and trousers. Only fold shading and the denim weave are kept; the print on the shirt is not used. | MakeHuman system assets | CC0 1.0 |
 | Clothes `shoes06` | Sneaker and sock shapes. Its texture is not used. | MakeHuman system assets | CC0 1.0 |
 
-The idle and walk animations are written in the generator; no motion capture is used.
+The idle, the walk, and the six emotions' clips are written in the generator; no motion capture is used. The blends that make each emotion's face are chosen there too.
 
 ## Realistic friends
 
 `public/assets/cast/friend-a-realistic.glb` and `friend-b-realistic.glb` are built by `blender/cast/generate_realistic_friends.py` with the same MPFB and the same pack, under the same terms.
 
-Both friends take the base mesh, its morph targets, the `game_engine` rig and skin weights, the `low-poly` eyes with the `brown` iris texture (shaded per friend), `eyebrow001`, `eyelashes01`, and `shoes06` exactly as the player does. What each adds:
+Both friends take the base mesh, its morph targets and expression units, the `game_engine` rig and skin weights, the `low-poly` eyes with the `brown` iris texture (shaded per friend), `eyebrow001`, `eyelashes01`, and `shoes06` exactly as the player does. What each adds:
 
 | Asset | Friend | What the model takes from it | Comes with | License |
 | --- | --- | --- | --- | --- |
@@ -40,7 +41,7 @@ Both friends take the base mesh, its morph targets, the `game_engine` rig and sk
 | Hair `short03` | B | His swept hair, mirrored; strand detail only, in his hair color | MakeHuman system assets | CC0 1.0 |
 | Clothes `male_casualsuit05` | B | Jacket, shirt, collar, and trousers, the jacket recut for a child. Only fold shading and the denim weave are kept; the shirt's stripes are not used. | MakeHuman system assets | CC0 1.0 |
 
-Friend A's scalp hair and its texture, her sash and panel, Friend B's hair clip, and both idle animations are made in the generator from no outside asset.
+Friend A's scalp hair and its texture, her sash and panel, Friend B's hair clip, and every animation are made in the generator from no outside asset.
 
 ## Sources
 
@@ -52,4 +53,4 @@ None of the source files are committed. Only the generated models and their prev
 
 ## Everything else
 
-The cartoon player, both cartoon friends, Camo in both styles, the living room, the ball, and the block are generated from Blender primitives and procedural materials. They use no outside textures, fonts, or models. The realistic Camo's skin is sculpted, painted, and textured by `blender/camo/generate_camo.py` itself.
+The cartoon player, both cartoon friends, Camo in both styles, the living room, the ball, and the block are generated from Blender primitives and procedural materials. They use no outside textures, fonts, or models. The realistic Camo's skin is sculpted, painted, and textured by `blender/camo/generate_camo.py` itself. The cartoon children's emotions, faces and clips alike, are drawn by `blender/cast/generate_cast.py`.
