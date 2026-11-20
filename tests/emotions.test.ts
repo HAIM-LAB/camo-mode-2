@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AnimationClip, AnimationMixer, Mesh, Object3D, PropertyBinding, Quaternion } from 'three';
+import { AnimationClip, AnimationMixer, Mesh, MeshBasicMaterial, Object3D, PropertyBinding, Quaternion } from 'three';
 import { IdleMotion } from '../src/cast-motion';
 import { CastAssetId } from '../src/config';
 import { EMOTIONS, Emotion, EmotionPlayer, Emotive, clearEmotion, playEmotion } from '../src/emotions';
@@ -249,6 +249,22 @@ describe('each avatar\'s emotions, in each style', () => {
       for (const weight of shown(model, emotion)) expect(weight, emotion).toBe(0);
       expect(poseGap(model, twin).drift, emotion).toBeLessThan(1e-6);
     }
+  });
+});
+
+describe('a realistic mouth', () => {
+  it.each(AVATARS)('opens onto one flat dark color that no light changes, on the %s', async (avatar) => {
+    const model = await loadCastModel(avatar, 'realistic');
+    const insides: Mesh[] = [];
+    model.traverse((child) => {
+      if (child instanceof Mesh && child.material instanceof MeshBasicMaterial) insides.push(child);
+    });
+    // Unlit: lit as skin is, the lining catches a light shone at the face and shows a pale band, like teeth.
+    expect(insides).toHaveLength(1);
+    const color = (insides[0].material as MeshBasicMaterial).color;
+    expect(Math.max(color.r, color.g, color.b)).toBeLessThan(0.05);
+    // It hangs from the lips, so it carries every face they do.
+    for (const emotion of EMOTIONS) expect(insides[0].morphTargetDictionary?.[emotion], emotion).toBeDefined();
   });
 });
 

@@ -319,7 +319,21 @@ EMOTIONS = ("anger", "disgust", "fear", "happiness", "sadness", "surprise")
 BASE_VERTEX = "base_vertex"
 # A vertex an expression moves less than this, in meters, is left where it is,
 # so the exported targets list only the vertices of the face that really move.
-STILL = 0.00004
+# A tenth of a millimeter is a quarter of a pixel in a close-up of the head.
+STILL = 0.0001
+# A child's face stays smooth and round where an adult's creases. MakeHuman's
+# units are an adult's: they furrow the brow, fold the skin from the nose to the
+# corners of the mouth, and crease the cheeks. So a face's movement is spread
+# over the skin around it: every vertex takes half of its neighbors' average
+# movement, this many times over. The lift of a cheek and the dip of a brow
+# survive that; a fold one edge wide does not.
+SOFTENING_PASSES = 10
+# The edges of the eyelids keep their own movement, so that they stay on the
+# eyeball: everything within the first of these distances from an eye's middle,
+# in eyeball radii, and less and less out to the second.
+EYELID_REACH = (1.15, 1.6)
+# The lips keep this share of theirs, because their shape is the expression.
+LIP_HOLD = 0.7
 
 
 def both(unit: str, weight: float) -> dict[str, float]:
@@ -331,40 +345,45 @@ def both(unit: str, weight: float) -> dict[str, float]:
 
 
 # Each emotion's face, as the weight of every morph it sets: MakeHuman's
-# expression units, and a few of its modeling morphs where a unit alone is too
-# faint to read (the angle of the brows, the lift of the cheeks). A morph a face
-# does not name stays as the resting face has it. Weights above 1 push a unit
-# past its own extreme, which a child's round face needs before it shows.
+# expression units, and some of its modeling morphs where a unit alone is too
+# faint to read or creases an adult's way (the angle of the brows, the lift and
+# roundness of the cheeks, the length of the nose). A morph a face does not name
+# stays as the resting face has it. Weights above 1 push a morph past its own
+# extreme, which a child's round face needs before it shows.
 #
 # Each face has to be named from a close-up of the head alone, without a
 # label, and never be frightening: they are drawn for clarity, not intensity.
 FACES: dict[str, dict[str, float]] = {
     # Brows drawn down and together over narrowed eyes, the lips pressed and turned down.
     "anger": {
-        **both("eyebrows-{side}-down", 1.3), "eyebrows-angle-down": 0.75, **both("eye-{side}-slit", 0.5),
-        **both("nose-{side}-dilatation", 0.8),
-        "mouth-corner-puller": 0.0, "mouth-compression": 0.9, "mouth-depression": 0.7,
+        **both("eyebrows-{side}-down", 1.2), "eyebrows-angle-down": 0.5, **both("eye-{side}-slit", 0.4),
+        **both("nose-{side}-dilatation", 0.6),
+        "mouth-corner-puller": 0.0, "mouth-compression": 0.8, "mouth-depression": 0.7,
     },
-    # A wrinkled nose, the eyes screwed up, and the top lip lifting away from the lower.
+    # A nose scrunched short, the eyes screwed up, and the top lip lifting away from the lower.
     "disgust": {
-        **both("nose-{side}-elevation", 1.4), **both("eyebrows-{side}-down", 0.5), **both("eye-{side}-slit", 0.9),
-        "mouth-corner-puller": 0.0, "mouth-elevation": 0.9, "mouth-depression": 0.6, "mouth-upward-retraction": 0.2,
+        **both("nose-{side}-elevation", 0.2), "nose-scale-vert-decr": 0.8, "nose-nostrils-angle-up": 0.6,
+        "nose-flaring-incr": 0.3, **both("eyebrows-{side}-down", 0.55),
+        **both("eye-{side}-slit", 0.6), **both("eye-{side}-closure", 0.25),
+        "mouth-corner-puller": 0.0, "mouth-elevation": 0.6, "mouth-upperlip-middle-up": 0.6, "mouth-depression": 0.6,
+        "mouth-upward-retraction": 0.2,
     },
     # Brows raised and pinched up in the middle, eyes wide enough to show white above, the mouth open and stretched sideways.
     "fear": {
-        **both("eyebrows-{side}-up", 0.6), **both("eyebrows-{side}-inner-up", 1.2), "eyebrows-angle-up": 0.6,
+        **both("eyebrows-{side}-up", 0.6), **both("eyebrows-{side}-inner-up", 1.3), "eyebrows-angle-up": 0.7,
         **both("eye-{side}-opened-up", 1.2),
-        "mouth-corner-puller": 0.0, "mouth-open": 0.45, "mouth-retraction": 0.6, "mouth-depression": 0.35, "neck-platysma": 0.3,
+        "mouth-corner-puller": 0.0, "mouth-open": 0.45, "mouth-retraction": 0.6, "mouth-depression": 0.2,
     },
-    # A broad, even, closed smile that lifts the cheeks and narrows the eyes a little.
+    # A warm smile: round cheeks lifting under eyes that narrow a little, the mouth curving up and just open.
     "happiness": {
-        "mouth-corner-puller": 1.35, "mouth-angles-up": 0.45,
-        **both("{s}-cheek-trans-up", 0.5), **both("eye-{side}-slit", 0.5), **both("eyebrows-{side}-up", 0.25),
+        "mouth-corner-puller": 0.95, "mouth-angles-up": 0.35, "mouth-open": 0.15,
+        **both("{s}-cheek-trans-up", 1.0), **both("{s}-cheek-volume-incr", 1.2),
+        **both("eye-{side}-slit", 0.45), **both("eyebrows-{side}-up", 0.2),
     },
     # Brows lifting in the middle over heavy lids, and a mouth turned down into a pout.
     "sadness": {
         **both("eyebrows-{side}-inner-up", 1.2), "eyebrows-angle-up": 0.4, **both("eye-{side}-closure", 0.35),
-        "mouth-corner-puller": 0.0, "mouth-depression": 1.0, "mouth-eversion": 0.4, "mouth-angles-down": 0.4,
+        "mouth-corner-puller": 0.0, "mouth-depression": 0.45, "mouth-eversion": 0.5, "mouth-angles-down": 0.9,
     },
     # Brows high and arched, eyes wide, and the jaw dropped into a round, dark mouth.
     "surprise": {
@@ -394,16 +413,34 @@ class Expressions:
     head: Matrix
     # The parts fitted to the base mesh, each with the three base vertices every one of its vertices follows and their weights.
     fitted: list[tuple[bpy.types.Object, np.ndarray, np.ndarray]]
+    # The base mesh's edges, as pairs of its vertices.
+    edges: np.ndarray
+    # How much of its own movement each base vertex keeps when a face is softened, 0 to 1.
+    keep: np.ndarray
 
     def blend(self, weights: dict[str, float]) -> np.ndarray:
         """How far a face with these unit weights is from the resting face, per base vertex.
 
-        A unit the weights do not name stays as the resting face has it.
+        A unit the weights do not name stays as the resting face has it. The
+        movement is softened, so the skin swells and dips without creasing.
         """
-        return sum(
+        return self.soften(sum(
             ((weight - self.resting.get(unit, 0.0)) * self.units[unit] for unit, weight in weights.items()),
             np.zeros_like(next(iter(self.units.values()))),
-        )
+        ))
+
+    def soften(self, moved: np.ndarray) -> np.ndarray:
+        """Spreads a face's movement over the skin around it; see SOFTENING_PASSES."""
+        start, end = self.edges[:, 0], self.edges[:, 1]
+        joined = np.maximum(np.bincount(self.edges.ravel(), minlength=len(moved)), 1)[:, None]
+        keep = self.keep[:, None]
+        own = moved
+        for _ in range(SOFTENING_PASSES):
+            around = np.zeros_like(moved)
+            np.add.at(around, start, moved[end])
+            np.add.at(around, end, moved[start])
+            moved = keep * own + (1.0 - keep) * 0.5 * (moved + around / joined)
+        return moved.astype(np.float32)
 
 
 def capture_expressions(
@@ -429,12 +466,41 @@ def capture_expressions(
     body.shape_key_clear()
     numbers = body.data.attributes.new(BASE_VERTEX, "INT", "POINT")
     numbers.data.foreach_set("value", np.arange(len(rest), dtype=np.int32))
+    edges = np.empty(len(body.data.edges) * 2, dtype=np.int32)
+    body.data.edges.foreach_get("vertices", edges)
     return Expressions(
         units=moves,
         resting={unit: float(morphs.get(unit, 0.0)) for unit in units},
         head=rig.data.bones["head"].matrix_local.to_3x3(),
         fitted=[],
+        edges=edges.reshape(-1, 2),
+        keep=own_movement(body, rest),
     )
+
+
+def own_movement(body: bpy.types.Object, rest: np.ndarray) -> np.ndarray:
+    """How much of its own movement each vertex of the base mesh keeps when a face is softened, 0 to 1.
+
+    The edges of the eyelids keep all of theirs and the lips most of it. So
+    does everything that is not skin: the helpers the eyelashes and the
+    clothes hang on.
+    """
+    names = {group.index: group.name for group in body.vertex_groups}
+    members: dict[str, list[int]] = {}
+    for vertex in body.data.vertices:
+        for item in vertex.groups:
+            members.setdefault(names[item.group], []).append(vertex.index)
+    keep = np.ones(len(rest), dtype=np.float32)
+    keep[members["body"]] = 0.0
+    keep[members["lips"]] = LIP_HOLD
+    near, far = EYELID_REACH
+    for side in "lr":
+        eyeball = rest[members[f"helper-{side}-eye"]]
+        middle = eyeball.mean(axis=0)
+        radius = np.linalg.norm(eyeball - middle, axis=1).max()
+        beyond = np.clip((np.linalg.norm(rest - middle, axis=1) / radius - near) / (far - near), 0.0, 1.0)
+        keep = np.maximum(keep, 1.0 - beyond * beyond * (3.0 - 2.0 * beyond))
+    return keep
 
 
 def follow_base_mesh(mpfb: dict, expressions: Expressions, obj: bpy.types.Object, part: tuple[str, str, str]) -> None:
@@ -510,6 +576,11 @@ def add_expressions(
     turned = np.array(rig.data.bones["head"].matrix_local.to_3x3() @ expressions.head.inverted(), dtype=np.float32)
     blends = {name: expressions.blend(weights) @ turned.T for name, weights in faces.items()}
     skin = skin_offsets(body, blends)
+    # Deep in the mouth nothing can be seen to move: the lining follows the lips
+    # only where it hangs from them, and the rest of it is not in any face.
+    deep = [index for index, step in lining_depth(body).items() if step >= 2]
+    for offsets in skin.values():
+        offsets[deep] = 0.0
 
     # What the cloth lies on: the skin as it rests, in triangles.
     mesh = body.data
@@ -607,9 +678,17 @@ def uv_coverage(mesh: bpy.types.Mesh, size: int, margin: int) -> np.ndarray:
     return covered
 
 
-# The inside of the mouth, as a share of the skin tone: so dark that an open
-# mouth is a plain dark shape on every tone, with nothing in it to take for a tongue.
-MOUTH_LINING = (0.07, 0.022, 0.02)
+# The inside of the mouth is so dark that an open mouth is a plain dark shape
+# on every skin, with nothing in it to take for a tongue or for teeth:
+# everything the closed lips hide is one flat color that no light changes.
+MOUTH_HEX = "#2a1210"
+# Where the lips meet it they are painted dark too, as a share of the skin
+# tone: fully for a couple of texels, then fading out over a few more, as a
+# shadow would. The edge of what the lips hide follows the mesh, a staircase,
+# and this keeps it out of sight.
+MOUTH_SHADE = (0.035, 0.012, 0.011)
+MOUTH_SHADE_REACH = 2
+MOUTH_SHADE_FEATHER = 3
 
 
 def inside_mouth(body: bpy.types.Object) -> list[int]:
@@ -666,15 +745,10 @@ LINING_TUCK = 0.009
 LINING_NARROWING = 0.4
 
 
-def tuck_mouth_lining(body: bpy.types.Object) -> None:
-    """Draws the lining of the mouth back from the skin of the face.
+def lining_depth(body: bpy.types.Object) -> dict[int, int]:
+    """For each vertex of what the closed lips hide, how many edges of lining lie between it and the lips it hangs from.
 
-    In the base mesh the backs of the lips and the cheeks' lining lie a few
-    millimeters under the skin. An expression that presses the lips together
-    moves the skin through them, and the lining, painted dark, would show on
-    the face. Everything the lips hide is moved back and drawn in toward the
-    middle of the mouth, except where it joins the lips, so the skin has room
-    to move. report_faces() checks that it has enough.
+    None on the lips themselves, where the lining joins the skin that can be seen.
     """
     mesh = body.data
     hidden = set(inside_mouth(body))
@@ -687,7 +761,6 @@ def tuck_mouth_lining(body: bpy.types.Object) -> None:
             for start, end in polygon.edge_keys:
                 edges.setdefault(start, set()).add(end)
                 edges.setdefault(end, set()).add(start)
-    # How many edges of lining lie between a vertex and the lips it hangs from: none on the lips themselves.
     steps = {index: 0 for index in inside & outside}
     front = list(steps)
     while front:
@@ -698,6 +771,21 @@ def tuck_mouth_lining(body: bpy.types.Object) -> None:
                     steps[neighbor] = steps[index] + 1
                     following.append(neighbor)
         front = following
+    return steps
+
+
+def tuck_mouth_lining(body: bpy.types.Object) -> None:
+    """Draws the lining of the mouth back from the skin of the face.
+
+    In the base mesh the backs of the lips and the cheeks' lining lie a few
+    millimeters under the skin. An expression that presses the lips together
+    moves the skin through them, and the lining, which is dark, would show on
+    the face. Everything the lips hide is moved back and drawn in toward the
+    middle of the mouth, except where it joins the lips, so the skin has room
+    to move. report_faces() checks that it has enough.
+    """
+    mesh = body.data
+    steps = lining_depth(body)
     lips = [mesh.vertices[index].co for index, step in steps.items() if step == 0]
     if not lips:
         raise SystemExit("The mouth's lining does not join the lips; it cannot be drawn back from them")
@@ -772,6 +860,24 @@ def paint_faces(mask: np.ndarray, mesh: bpy.types.Mesh, faces: list[int]) -> Non
         mask[y0:y1, x0:x1] |= inside
 
 
+# How much of the color a skin pack paints around the eyes is taken out, and how
+# far from an eye's middle that reaches, in eyeball radii.
+EYELID_PLAINNESS = 0.85
+EYELID_PAINT_REACH = 1.8
+
+
+def around_eyes(body: bpy.types.Object, eyes: bpy.types.Object) -> list[int]:
+    """The faces of the skin around the eyes: the eyelids and their rims."""
+    eyeballs = positions(eyes.data)
+    centers = np.array([polygon.center[:] for polygon in body.data.polygons], dtype=np.float32)
+    near = np.zeros(len(centers), dtype=bool)
+    for side in (eyeballs[:, 0] < 0.0, eyeballs[:, 0] > 0.0):
+        middle = eyeballs[side].mean(axis=0)
+        radius = np.linalg.norm(eyeballs[side] - middle, axis=1).max()
+        near |= np.linalg.norm(centers - middle, axis=1) < EYELID_PAINT_REACH * radius
+    return np.flatnonzero(near).tolist()
+
+
 def skin_texture(
     mpfb: dict,
     body: bpy.types.Object,
@@ -780,15 +886,21 @@ def skin_texture(
     *,
     source: tuple[str, str, str] = SKIN,
     name: str = "player-skin",
+    plain_eyelids: bpy.types.Object | None = None,
 ) -> Path:
     """The skin as a neutral detail map: multiplied by a tone it gives that tone.
 
     Only the texels the visible skin uses are kept. Everything the clothes cover
     is flattened, so no unclothed body texture ships in the file. ears is the
-    ears' own mesh, on a model that keeps them apart from the body. The packs
-    do not paint the inside of the mouth for looking into, so everything
-    behind the lips is painted a mouth's dark here. (No teeth are modeled: an
-    open mouth is a dark shape, as a child draws it.)
+    ears' own mesh, on a model that keeps them apart from the body.
+
+    The inside of the mouth has its own material, from line_mouth(); here
+    the lips are shaded where they meet it.
+
+    plain_eyelids is the eyes' mesh, for a pack that paints the rims of the
+    eyelids red-brown, as the player's does. On a young child that reads as
+    sore eyes, so the skin around the eyes keeps its light and shade and
+    loses that color.
     """
     subdir, fragment, filename = source
     pixels = load_pixels(asset_path(mpfb, subdir, fragment).parent / filename, size)
@@ -801,15 +913,23 @@ def skin_texture(
     reference = np.percentile(linear[used], 75, axis=0)
     neutral = np.clip(linear / reference, 0.0, 1.0)
     neutral[~used] = 1.0
-    # Everything the closed lips hide goes dark: the lining, which the packs
-    # leave unpainted or pale, and the backs of the lips, which are lip-red
-    # and would show as a tongue in an open mouth. So do the texels beside
-    # them, where the two would blend.
+    if plain_eyelids is not None:
+        rims = np.zeros((size, size), dtype=bool)
+        paint_faces(rims, body.data, around_eyes(body, plain_eyelids))
+        # Feathered over a few texels, so the change has no edge.
+        share = rims.astype(np.float32)
+        for _ in range(6):
+            share = (share + sum(np.roll(share, step, axis) for step in (-1, 1) for axis in (0, 1))) / 5.0
+        grey = luminance(neutral)[..., None]
+        neutral = neutral + (grey - neutral) * (EYELID_PLAINNESS * share)[..., None]
     lining = np.zeros((size, size), dtype=bool)
     paint_faces(lining, body.data, inside_mouth(body))
-    for axis in (0, 1):
-        lining = lining | np.roll(lining, 1, axis) | np.roll(lining, -1, axis)
-    neutral[lining] = MOUTH_LINING
+    for _ in range(MOUTH_SHADE_REACH):
+        lining = lining | np.roll(lining, 1, 0) | np.roll(lining, -1, 0) | np.roll(lining, 1, 1) | np.roll(lining, -1, 1)
+    share = lining.astype(np.float32)
+    for _ in range(MOUTH_SHADE_FEATHER):
+        share = np.maximum(share, (share + sum(np.roll(share, step, axis) for step in (-1, 1) for axis in (0, 1))) / 5.0)
+    neutral = neutral + (np.array(MOUTH_SHADE, dtype=np.float32) - neutral) * share[..., None]
     pixels[..., :3] = linear_to_srgb(neutral)
     pixels[..., 3] = 1.0
     return save_pixels(name, pixels, alpha=False)
@@ -876,11 +996,29 @@ def tinted_alpha_texture(mpfb: dict, part: tuple[str, str, str], name: str, tint
     return save_pixels(name, pixels, alpha=True)
 
 
-def eye_texture(mpfb: dict, size: int = 256, *, source: tuple[str, str, str] = EYE_TEXTURE, name: str = "player-eyes") -> Path:
+# The pack's brown iris is a red-brown, and bright: at the game's size it reads
+# as red eyes. Each channel of it is scaled by these, toward a plain warm brown.
+IRIS = (0.58, 0.68, 0.6)
+
+
+def eye_texture(
+    mpfb: dict,
+    size: int = 256,
+    *,
+    source: tuple[str, str, str] = EYE_TEXTURE,
+    name: str = "player-eyes",
+    iris: tuple[float, float, float] = IRIS,
+) -> Path:
+    """The pack's eye with everything colored in it scaled by iris, channel by channel.
+
+    That is the iris and the pink in the corners of the eye. The white is left as it is.
+    """
     subdir, fragment, filename = source
     pixels = load_pixels(asset_path(mpfb, subdir, fragment).parent / filename, size)
+    color = pixels[..., :3]
+    colored = np.clip((color.max(axis=2) - color.min(axis=2)) * 5.0, 0.0, 1.0)[..., None]
     # The pack's eye whites are grey; lifted a little so the eyes read from the game camera.
-    pixels[..., :3] = np.clip(pixels[..., :3] * 1.15, 0.0, 1.0)
+    pixels[..., :3] = np.clip(color * 1.15 * (1.0 - colored + colored * np.array(iris, dtype=np.float32)), 0.0, 1.0)
     pixels[..., 3] = 1.0
     return save_pixels(name, pixels, alpha=False)
 
@@ -935,6 +1073,38 @@ def make_material(
     elif alpha == "BLEND":
         tree.links.new(image.outputs["Alpha"], shader.inputs["Alpha"])
     return material
+
+
+def mouth_material(name: str) -> bpy.types.Material:
+    """The inside of a mouth: one flat dark color that no light changes.
+
+    Lit as skin is, even painted dark, the lining catches a light shone at
+    the face and shows a pale band behind the lips, like teeth. A color wired
+    straight to the output is how the exporter recognises an unlit material
+    (glTF KHR_materials_unlit).
+    """
+    material = bpy.data.materials.new(name)
+    material.use_nodes = True
+    material.diffuse_color = hex_rgba(MOUTH_HEX)
+    tree = material.node_tree
+    tree.nodes.remove(tree.nodes["Principled BSDF"])
+    color = tree.nodes.new("ShaderNodeRGB")
+    color.outputs["Color"].default_value = hex_rgba(MOUTH_HEX)
+    tree.links.new(color.outputs["Color"], tree.nodes["Material Output"].inputs["Surface"])
+    return material
+
+
+def line_mouth(body: bpy.types.Object, material: bpy.types.Material) -> None:
+    """Gives everything the closed lips hide the mouth's material.
+
+    The packs do not paint the inside of the mouth for looking into: it is
+    pale on one skin and bright red on another, and the backs of the lips are
+    lip-red, which shows as a tongue in an open mouth.
+    """
+    body.data.materials.append(material)
+    slot = len(body.data.materials) - 1
+    for index in inside_mouth(body):
+        body.data.polygons[index].material_index = slot
 
 
 def assign(obj: bpy.types.Object, material: bpy.types.Material) -> None:
@@ -1571,9 +1741,10 @@ def build_player(mpfb: dict) -> dict[str, bpy.types.Object]:
         strip_modifiers(obj)
 
     clothes_map = clothes_texture(mpfb, top, trousers)
-    skin = make_material("Player Skin", SKIN_HEX, texture=skin_texture(mpfb, body, ears), roughness=0.62)
+    skin = make_material("Player Skin", SKIN_HEX, texture=skin_texture(mpfb, body, ears, plain_eyelids=eyes), roughness=0.62)
     assign(body, skin)
     assign(ears, skin)
+    line_mouth(body, mouth_material("Player Mouth"))
     assign(eyes, make_material("Player Eyes", "#ffffff", texture=eye_texture(mpfb), roughness=0.25))
     assign(brows, make_material("Player Brows", "#ffffff", texture=tinted_alpha_texture(mpfb, BROWS, "player-brows", "#3a2820"), roughness=0.9, alpha="BLEND"))
     assign(lashes, make_material("Player Lashes", "#ffffff", texture=tinted_alpha_texture(mpfb, LASHES, "player-lashes", "#241a16"), roughness=0.9, alpha="BLEND"))

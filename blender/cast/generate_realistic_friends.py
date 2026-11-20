@@ -243,21 +243,9 @@ def add_face(mpfb: dict, body: bpy.types.Object, expressions: rp.Expressions) ->
     return face
 
 
-def eye_texture(mpfb: dict, source: tuple[str, str, str], name: str, iris: tuple[float, float, float], size: int = 256) -> Path:
-    """The pack's eye with its iris shaded: each channel of the colored part is scaled, the white is not."""
-    subdir, fragment, filename = source
-    pixels = rp.load_pixels(rp.asset_path(mpfb, subdir, fragment).parent / filename, size)
-    color = pixels[..., :3]
-    colored = np.clip((color.max(axis=2) - color.min(axis=2)) * 5.0, 0.0, 1.0)[..., None]
-    # The pack's eye whites are grey; lifted a little so the eyes read from the game camera.
-    pixels[..., :3] = np.clip(color * 1.15 * (1.0 - colored + colored * np.array(iris, dtype=np.float32)), 0.0, 1.0)
-    pixels[..., 3] = 1.0
-    return rp.save_pixels(name, pixels, alpha=False)
-
-
 def paint_face(mpfb: dict, face: dict[str, bpy.types.Object], prefix: str, *, iris: tuple[float, float, float], brow_hex: str) -> None:
     """Paints the face parts. iris shades the pack's brown iris, a red-brown, toward the friend's own."""
-    rp.assign(face["eyes"], rp.make_material(f"{prefix} eyes", "#ffffff", texture=eye_texture(mpfb, rp.EYE_TEXTURE, f"{prefix}-eyes", iris), roughness=0.3))
+    rp.assign(face["eyes"], rp.make_material(f"{prefix} eyes", "#ffffff", texture=rp.eye_texture(mpfb, name=f"{prefix}-eyes", iris=iris), roughness=0.3))
     rp.assign(face["brows"], rp.make_material(f"{prefix} brows", "#ffffff", texture=rp.tinted_alpha_texture(mpfb, rp.BROWS, f"{prefix}-brows", brow_hex), roughness=0.9, alpha="BLEND"))
     rp.assign(face["lashes"], rp.make_material(f"{prefix} lashes", "#ffffff", texture=rp.tinted_alpha_texture(mpfb, rp.LASHES, f"{prefix}-lashes", "#1b1412"), roughness=0.9, alpha="BLEND"))
 
@@ -439,6 +427,7 @@ def build_friend_a(mpfb: dict) -> dict[str, bpy.types.Object]:
         rp.strip_modifiers(obj)
 
     rp.assign(body, rp.make_material(f"{prefix} skin", A_SKIN_HEX, texture=rp.skin_texture(mpfb, body, None, source=SKIN_A, name=f"{prefix}-skin"), roughness=0.62))
+    rp.line_mouth(body, rp.mouth_material(f"{prefix} mouth"))
     paint_face(mpfb, face, prefix, iris=(0.42, 0.4, 0.38), brow_hex="#1d1513")  # A deep brown.
     rp.assign(scalp, rp.make_material(f"{prefix} hair scalp", "#ffffff", texture=combed_texture(f"{prefix}-hair-scalp", A_HAIR_HEX), roughness=0.85, alpha="CLIP"))
     rp.assign(puffs, rp.make_material(
@@ -657,6 +646,7 @@ def build_friend_b(mpfb: dict) -> dict[str, bpy.types.Object]:
         rp.strip_modifiers(obj)
 
     rp.assign(body, rp.make_material(f"{prefix} skin", B_SKIN_HEX, texture=rp.skin_texture(mpfb, body, None, source=SKIN_B, name=f"{prefix}-skin"), roughness=0.62))
+    rp.line_mouth(body, rp.mouth_material(f"{prefix} mouth"))
     paint_face(mpfb, face, prefix, iris=(0.62, 0.66, 0.62), brow_hex="#1b2130")  # A soft hazel brown.
     rp.assign(hair, rp.make_material(
         f"{prefix} hair", "#ffffff", roughness=0.8, alpha="CLIP", double_sided=True,
