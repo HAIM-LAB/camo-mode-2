@@ -18,7 +18,9 @@ import { BufferAttribute, BufferGeometry, Float32BufferAttribute } from 'three';
 export function addMorphNormals(geometry: BufferGeometry): void {
   const targets = geometry.morphAttributes.position;
   if (!targets || targets.length === 0 || geometry.morphAttributes.normal) return;
-  const position = geometry.getAttribute('position') as BufferAttribute;
+  const position = geometry.getAttribute('position');
+  // Positions woven into a shared buffer with other attributes are not read here; the models' are not.
+  if (!(position instanceof BufferAttribute)) return;
   const stands = sharedVertices(position);
   const resting = smoothNormals(geometry, position.array, stands);
   const relative = geometry.morphTargetsRelative;
