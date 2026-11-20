@@ -10,7 +10,9 @@ No images, fonts, or other external assets are used. (The realistic cast, built
 from CC0 MakeHuman assets, has its own scripts: generate_realistic_player.py and
 generate_realistic_friends.py.)
 
-Add `-- --views <directory>` to also save close-up renders of each character.
+Add `-- --views <directory>` to also save close-up renders of each character,
+and `-- --emotions <directory>` to save every emotion of each: its face alone,
+and its face and body.
 """
 
 from __future__ import annotations
@@ -112,6 +114,7 @@ def make_materials() -> None:
     material("Smile", (0.23, 0.055, 0.045, 1.0), roughness=0.95)
     material("Sole", (0.075, 0.09, 0.12, 1.0), roughness=0.9)
     material("Soft White", (0.92, 0.94, 0.92, 1.0), roughness=0.9)
+    material("Tongue", (0.80, 0.19, 0.24, 1.0), roughness=0.7)
 
     # Player: high-value gold backpack is deliberately readable from behind.
     material("Player Skin", (0.48, 0.235, 0.12, 1.0))
@@ -484,6 +487,70 @@ def head_point(yaw: float, pitch: float, lift: float = 0.0, head: Ellipsoid | No
     return center + surface + direction * lift
 
 
+# A painted-on oval is a fan of triangles around its middle and rings of quads
+# out to its rim. Every oval has these faces; only its vertices differ, which is
+# what lets an emotion redraw one as a shape key.
+DECAL_RINGS, DECAL_SEGMENTS = 3, 18
+
+
+def decal_faces() -> list[tuple[int, ...]]:
+    faces: list[tuple[int, ...]] = []
+    for segment in range(DECAL_SEGMENTS):
+        following = (segment + 1) % DECAL_SEGMENTS
+        faces.append((0, 1 + segment, 1 + following))
+        for ring in range(1, DECAL_RINGS):
+            inner, outer = 1 + (ring - 1) * DECAL_SEGMENTS, 1 + ring * DECAL_SEGMENTS
+            faces.append((inner + segment, outer + segment, outer + following, inner + following))
+    return faces
+
+
+DECAL_FACES = decal_faces()
+
+
+def decal_vertices(
+    yaw: float,
+    pitch: float,
+    half_width: float,
+    half_height: float,
+    *,
+    lift: float = 0.004,
+    tilt: float = 0.0,
+    arch: float = 0.0,
+    head: Ellipsoid | None = None,
+) -> list[Vector]:
+    """The vertices of a painted-on oval: a patch that follows the head's curve.
+
+    Sizes are in meters along the surface; tilt (degrees) turns the oval in
+    place. It bulges by lift at its middle and meets the head at its rim. arch
+    bows the oval upward in its middle by that many meters: on a flattened
+    oval it draws an arc, the shut eye of a smile.
+    """
+    tilt_r = math.radians(tilt)
+    radii = (head or (HEAD_CENTER, HEAD_RADII))[1]
+    meters_per_yaw = math.radians(1.0) * radii.x * math.cos(math.radians(pitch))
+    meters_per_pitch = math.radians(1.0) * radii.z
+    vertices = [head_point(
+        yaw - arch * math.sin(tilt_r) / meters_per_yaw, pitch + arch * math.cos(tilt_r) / meters_per_pitch, lift, head,
+    )]
+    for ring in range(1, DECAL_RINGS + 1):
+        reach = ring / DECAL_RINGS
+        for segment in range(DECAL_SEGMENTS):
+            angle = 2.0 * math.pi * segment / DECAL_SEGMENTS
+            across, up = half_width * reach * math.cos(angle), half_height * reach * math.sin(angle)
+            up += arch * (1.0 - (reach * math.cos(angle)) ** 2)
+            across, up = (
+                across * math.cos(tilt_r) - up * math.sin(tilt_r),
+                across * math.sin(tilt_r) + up * math.cos(tilt_r),
+            )
+            vertices.append(head_point(
+                yaw + across / meters_per_yaw,
+                pitch + up / meters_per_pitch,
+                lift * (1.0 - 0.75 * reach * reach),
+                head,
+            ))
+    return vertices
+
+
 def add_face_decal(
     name: str,
     yaw: float,
@@ -496,59 +563,215 @@ def add_face_decal(
     tilt: float = 0.0,
     head: Ellipsoid | None = None,
 ) -> bpy.types.Object:
-    """A painted-on oval: a patch of faces that follows the head's curve.
+    """A painted-on oval; see decal_vertices()."""
+    return add_surface(name, decal_vertices(yaw, pitch, half_width, half_height, lift=lift, tilt=tilt, head=head), DECAL_FACES, mat)
 
-    Sizes are in meters along the surface; tilt (degrees) turns the oval in place.
-    It bulges by lift at its middle and meets the head at its rim.
+
+MOUTH_COLUMNS = 14
+MOUTH_FACES = [(2 * column, 2 * column + 2, 2 * column + 3, 2 * column + 1) for column in range(MOUTH_COLUMNS)]
+
+
+def mouth_vertices(
+    half_span: float,
+    pitch: float,
+    rise: float,
+    thickness: float,
+    *,
+    top: float = 0.0,
+    bottom: float = 0.0,
+    wave: float = 0.0,
+    slant: float = 0.0,
+    head: Ellipsoid | None = None,
+) -> list[Vector]:
+    """The vertices of a painted-on mouth: a band across the face, in degrees on the head.
+
+    Its ends curl up by rise, or down when rise is negative. top and bottom
+    open it: its upper edge bows up and its lower edge down by that much in
+    the middle, and the dark between them is the open mouth. wave ripples it
+    along its length, and slant lifts its +X end and drops the other.
     """
-    rings, segments = 3, 18
-    tilt_r = math.radians(tilt)
-    radii = (head or (HEAD_CENTER, HEAD_RADII))[1]
-    meters_per_yaw = math.radians(1.0) * radii.x * math.cos(math.radians(pitch))
-    meters_per_pitch = math.radians(1.0) * radii.z
-    vertices = [head_point(yaw, pitch, lift, head)]
-    for ring in range(1, rings + 1):
-        reach = ring / rings
-        for segment in range(segments):
-            angle = 2.0 * math.pi * segment / segments
-            across, up = half_width * reach * math.cos(angle), half_height * reach * math.sin(angle)
-            across, up = (
-                across * math.cos(tilt_r) - up * math.sin(tilt_r),
-                across * math.sin(tilt_r) + up * math.cos(tilt_r),
-            )
-            vertices.append(head_point(
-                yaw + across / meters_per_yaw,
-                pitch + up / meters_per_pitch,
-                lift * (1.0 - 0.75 * reach * reach),
-                head,
-            ))
-    faces: list[tuple[int, ...]] = []
-    for segment in range(segments):
-        following = (segment + 1) % segments
-        faces.append((0, 1 + segment, 1 + following))
-        for ring in range(1, rings):
-            inner, outer = 1 + (ring - 1) * segments, 1 + ring * segments
-            faces.append((inner + segment, outer + segment, outer + following, inner + following))
-    return add_surface(name, vertices, faces, mat)
+    vertices: list[Vector] = []
+    for column in range(MOUTH_COLUMNS + 1):
+        along = -1.0 + 2.0 * column / MOUTH_COLUMNS
+        open_here = max(1.0 - along * along, 0.0)
+        middle = pitch + rise * along * along + wave * math.sin(1.5 * math.pi * along) * open_here ** 0.3 + slant * along
+        # Tapered to rounded tips.
+        half = max(thickness * math.sqrt(open_here), 0.04)
+        lift = 0.0035 * (1.0 - 0.6 * along * along)
+        vertices.append(head_point(half_span * along, middle - half - bottom * open_here ** 0.75, lift, head))
+        vertices.append(head_point(half_span * along, middle + half + top * open_here ** 0.75, lift, head))
+    return vertices
 
 
 def add_smile(name: str, half_span: float, pitch: float, rise: float, thickness: float, mat: bpy.types.Material, *, head: Ellipsoid | None = None) -> bpy.types.Object:
     """A painted-on smile: an arc across the face whose ends curl up by rise degrees."""
-    columns = 14
-    vertices: list[Vector] = []
-    for column in range(columns + 1):
-        along = -1.0 + 2.0 * column / columns
-        middle = pitch + rise * along * along
-        # Tapered to rounded tips.
-        half = max(thickness * math.sqrt(max(1.0 - along * along, 0.0)), 0.04)
-        lift = 0.0035 * (1.0 - 0.6 * along * along)
-        vertices.append(head_point(half_span * along, middle - half, lift, head))
-        vertices.append(head_point(half_span * along, middle + half, lift, head))
-    faces = [
-        (2 * column, 2 * column + 2, 2 * column + 3, 2 * column + 1)
-        for column in range(columns)
-    ]
-    return add_surface(name, vertices, faces, mat)
+    return add_surface(name, mouth_vertices(half_span, pitch, rise, thickness, head=head), MOUTH_FACES, mat)
+
+
+# -----------------------------------------------------------------------------
+# Faces
+#
+# A painted face shows an emotion by being redrawn: every feature that changes
+# carries one shape key per emotion, named for it, which exports as a morph
+# target. The game sets the target; the body's part of an emotion is a clip of
+# the same name (see Emotions below). A feature's shape key is the feature
+# drawn again with other numbers, so it still lies on the head.
+
+EMOTIONS = ("anger", "disgust", "fear", "happiness", "sadness", "surprise")
+# The features of a painted face that an emotion redraws, as their nodes are named after the character's prefix.
+FACE_FEATURES = ("eye_L", "eye_L_glint", "brow_L", "eye_R", "eye_R_glint", "brow_R", "smile", "tongue")
+
+
+@dataclass(frozen=True)
+class Look:
+    """How one emotion redraws a child's resting face.
+
+    A pair is the eye or brow on the character's -X side, then the one on its
+    +X side; a single number is both.
+    """
+
+    # The eyes: their width and height as shares of the resting eye, how far
+    # each is turned (degrees, its outer end lifting), and how far it bows
+    # upward into an arc, in meters.
+    eye_wide: float | tuple[float, float] = 1.0
+    eye_tall: float | tuple[float, float] = 1.0
+    eye_turn: float = 0.0
+    eye_arch: float = 0.0
+    # The glints in the eyes, as a share of their resting size.
+    glint: float = 1.0
+    # The brows: how far they rise, in degrees on the head, and how far their
+    # inner ends lift (or, negative, drop toward the nose), in degrees.
+    brow_rise: float | tuple[float, float] = 0.0
+    brow_slant: float | tuple[float, float] = 0.0
+    # The mouth, as mouth_vertices() draws it; span is a share of the resting mouth's.
+    span: float = 1.0
+    rise: float = 0.0
+    drop: float = 0.0
+    thick: float = 1.0
+    top: float = 0.0
+    bottom: float = 0.0
+    wave: float = 0.0
+    slant: float = 0.0
+    # How far the tongue is stuck out under the mouth, as a share of all the way.
+    tongue: float = 0.0
+
+
+def sides(value: float | tuple[float, float]) -> tuple[float, float]:
+    return value if isinstance(value, tuple) else (value, value)
+
+
+# Every emotion reads on the face alone, each unlike the other five: the game
+# shows a face close up before it shows the body.
+LOOKS: dict[str, Look] = {
+    # Brows drawn down hard to the nose over narrowed eyes, and a short, tight frown.
+    "anger": Look(eye_tall=0.74, eye_turn=-9.0, brow_rise=-3.6, brow_slant=-27.0, span=0.8, rise=-2.4, drop=1.0, thick=1.55),
+    # Both eyes screwed up under lowered brows, the mouth pulled crooked, and the tongue stuck out: yuck.
+    "disgust": Look(
+        eye_tall=(0.46, 0.5), eye_turn=-6.0, glint=0.6, brow_rise=(-3.2, -2.4), brow_slant=(-14.0, -4.0),
+        span=0.86, rise=-1.2, top=0.3, bottom=1.4, wave=2.0, slant=1.2, tongue=1.0,
+    ),
+    # Wide eyes under raised brows that pinch up in the middle, and a mouth open and wavering.
+    "fear": Look(
+        eye_wide=1.1, eye_tall=1.2, glint=1.25, brow_rise=5.0, brow_slant=18.0,
+        span=0.95, rise=-0.8, drop=1.2, top=0.9, bottom=3.6, wave=2.2,
+    ),
+    # Eyes shut into arcs over a wide, open smile.
+    "happiness": Look(eye_wide=1.12, eye_tall=0.26, eye_arch=0.02, glint=0.0, brow_rise=2.6, span=1.22, rise=7.0, top=0.4, bottom=8.0),
+    # Drooping lids under brows that sag at their outer ends, and a small mouth turned right down.
+    "sadness": Look(eye_tall=0.7, eye_turn=-16.0, glint=0.7, brow_rise=-0.6, brow_slant=20.0, span=0.7, rise=-7.5, drop=3.5, thick=0.9),
+    # Round eyes, brows high and level, and a small round mouth.
+    "surprise": Look(eye_wide=1.22, eye_tall=1.14, glint=1.35, brow_rise=8.0, span=0.4, drop=1.5, top=4.2, bottom=4.2),
+}
+
+
+def add_shape_keys(obj: bpy.types.Object, shapes: dict[str, list[Vector]]) -> None:
+    """Gives a part one shape key per name: the same part, drawn with its vertices somewhere else."""
+    obj.shape_key_add(name="Basis", from_mix=False)
+    for name, vertices in shapes.items():
+        if len(vertices) != len(obj.data.vertices):
+            raise RuntimeError(f"{obj.name}: shape {name} has {len(vertices)} vertices, the part {len(obj.data.vertices)}")
+        key = obj.shape_key_add(name=name, from_mix=False)
+        for point, vertex in zip(key.data, vertices):
+            point.co = vertex
+        key.value = 0.0
+
+
+def add_face(
+    prefix: str,
+    skin_light: bpy.types.Material,
+    brows: bpy.types.Material,
+    *,
+    eyes: bpy.types.Material,
+    smile: bpy.types.Material,
+    blush: bpy.types.Material,
+    eye_size: tuple[float, float],
+    brow: tuple[float, float, float],
+    brow_ceiling: float,
+    smile_span: float,
+    smile_rise: float,
+) -> None:
+    """A child's painted-on face, with a shape key on each feature for every emotion.
+
+    brow is where the eyebrows rest: their pitch on the head, their half
+    height in meters, and how far their inner ends are raised, in degrees.
+    brow_ceiling is the pitch where this child's hair begins: a brow that an
+    emotion lifts or slants stays under it, on the skin, where it can be seen.
+    """
+    brow_pitch, brow_height, brow_slant = brow
+    brow_width = 0.036
+    white = MATERIALS["Soft White"]
+    degrees_per_meter = 1.0 / (math.radians(1.0) * HEAD_RADII.z)
+    for index, (side, sign) in enumerate((("L", -1.0), ("R", 1.0))):
+        def eye(look: Look) -> list[Vector]:
+            tall = sides(look.eye_tall)[index]
+            # An eye that widens grows downward: its top stays clear of the brow.
+            grown = max(tall - 1.0, 0.0) * eye_size[1] * degrees_per_meter
+            return decal_vertices(
+                sign * 19.0, 1.0 - grown, eye_size[0] * sides(look.eye_wide)[index], eye_size[1] * tall,
+                lift=0.005, tilt=sign * look.eye_turn, arch=look.eye_arch,
+            )
+
+        def glint(look: Look) -> list[Vector]:
+            # A shut eye has none: it shrinks away into the eye's own ink.
+            size = max(look.glint, 0.02)
+            tall = sides(look.eye_tall)[index]
+            return decal_vertices(sign * 19.0 - 2.4, 1.0 + 5.0 * tall, 0.011 * size, 0.014 * size * min(tall + 0.3, 1.0), lift=0.008 if look.glint else 0.0045)
+
+        def eyebrow(look: Look) -> list[Vector]:
+            slant = brow_slant + sides(look.brow_slant)[index]
+            # Its higher end, and so the whole brow, stays under the hair.
+            reach = (abs(math.sin(math.radians(slant))) * brow_width + brow_height) * degrees_per_meter
+            pitch = min(brow_pitch + sides(look.brow_rise)[index], brow_ceiling - reach)
+            return decal_vertices(sign * 19.5, pitch, brow_width, brow_height, lift=0.006, tilt=-sign * slant)
+
+        rest = Look()
+        for name, draw, mat in ((f"eye_{side}", eye, eyes), (f"eye_{side}_glint", glint, white), (f"brow_{side}", eyebrow, brows)):
+            part = add_surface(f"{prefix}_{name}", draw(rest), DECAL_FACES, mat)
+            add_shape_keys(part, {emotion: draw(look) for emotion, look in LOOKS.items()})
+        add_face_decal(f"{prefix}_cheek_{side}", sign * 35.0, -17.0, 0.046, 0.027, blush, lift=0.0035)
+    add_ico(f"{prefix}_nose", tuple(head_point(0.0, -8.0, -0.004)), (0.02, 0.016, 0.017), skin_light, smooth=True)
+
+    def mouth(look: Look) -> list[Vector]:
+        return mouth_vertices(
+            smile_span * look.span, -27.0 - look.drop, look.rise, 1.5 * look.thick,
+            top=look.top, bottom=look.bottom, wave=look.wave, slant=look.slant,
+        )
+
+    rest = Look(rise=smile_rise)
+    lips = add_surface(f"{prefix}_smile", mouth(rest), MOUTH_FACES, smile)
+    add_shape_keys(lips, {emotion: mouth(look) for emotion, look in LOOKS.items()})
+
+    def tongue(look: Look) -> list[Vector]:
+        # It hangs from the middle of the mouth. Put away, it is a speck behind the mouth's own paint.
+        out = max(look.tongue, 0.02)
+        hang = 5.4 * look.tongue
+        return decal_vertices(
+            0.6 * look.slant, -27.0 - look.drop - hang, 0.021 * out, 0.026 * out,
+            lift=0.0045 if look.tongue else 0.002,
+        )
+
+    licker = add_surface(f"{prefix}_tongue", tongue(Look()), DECAL_FACES, MATERIALS["Tongue"])
+    add_shape_keys(licker, {emotion: tongue(look) for emotion, look in LOOKS.items()})
 
 
 def build_player() -> None:
@@ -610,14 +833,14 @@ def build_player() -> None:
             # Hair sits behind and above the face; the fringes below finish each look.
             add_ico("player_hair_back", tuple(HAIR_BACK_CENTER), tuple(HAIR_BACK_RADII), hair, subdivisions=3, smooth=True)
 
-            # The face is painted on: flat shapes that hug the head.
-            ink, white = MATERIALS["Ink"], MATERIALS["Soft White"]
-            for side, sign in (("L", -1.0), ("R", 1.0)):
-                add_face_decal(f"player_eye_{side}", sign * 19.0, 1.0, 0.034, 0.056, ink, lift=0.005)
-                add_face_decal(f"player_eye_{side}_glint", sign * 19.0 - 2.4, 6.0, 0.011, 0.014, white, lift=0.008)
-                add_face_decal(f"player_cheek_{side}", sign * 35.0, -17.0, 0.046, 0.027, MATERIALS["Player Blush"], lift=0.0035)
-            add_ico("player_nose", tuple(head_point(0.0, -8.0, -0.004)), (0.02, 0.016, 0.017), skin_light, smooth=True)
-            add_smile("player_smile", 10.5, -27.0, 5.5, 1.5, MATERIALS["Smile"])
+            # The face is painted on: flat shapes that hug the head. The brows
+            # sit in the strip of forehead between the eyes and the fringe.
+            add_face(
+                "player", skin_light, hair,
+                eyes=MATERIALS["Ink"], smile=MATERIALS["Smile"], blush=MATERIALS["Player Blush"],
+                # The fringes begin just above the brows.
+                eye_size=(0.034, 0.056), brow=(15.9, 0.0072, 5.0), brow_ceiling=18.2, smile_span=10.5, smile_rise=5.5,
+            )
 
             add_player_headwear()
 
@@ -843,7 +1066,7 @@ def idle_pose(phase: float) -> Pose:
 # A clip: its name, its length in frames, the frames between keys, and its pose
 # at a phase of the loop (radians).
 Clip = tuple[str, int, int, Callable[[float], Pose]]
-PLAYER_CLIPS: tuple[Clip, ...] = (("idle", IDLE_FRAMES, 3, idle_pose), ("walk", WALK_FRAMES, 1, walk_pose))
+PLAYER_MOVES: tuple[Clip, ...] = (("idle", IDLE_FRAMES, 3, idle_pose), ("walk", WALK_FRAMES, 1, walk_pose))
 
 
 def animate(clips: tuple[Clip, ...], prefix: str = "") -> None:
@@ -878,6 +1101,142 @@ def animate(clips: tuple[Clip, ...], prefix: str = "") -> None:
             obj.location = rest[name]
 
 
+# -----------------------------------------------------------------------------
+# Emotions: the body
+#
+# Each emotion has one clip, named for it, that holds the emotion's posture and
+# keeps it alive: a loop in place, like the idle. The game fades from the idle
+# into it and back. The face is not in the clip: it is the shape keys of the
+# same name (see Faces), so the game can show a face alone or with its body.
+# All three children share these clips, as they share the kit.
+#
+# The tone is a young child's and stays gentle: anger is stiff arms and a small
+# stamp, never a raised hand, and fear is shrinking back with the hands held
+# close, never terror.
+
+
+def swung(degrees: float) -> tuple[tuple[float, float, float], tuple[float, float, float]]:
+    """An arm swung at the shoulder: forward for a negative angle, back for a positive one.
+
+    The kit's arms are short and stand out between a wide tunic and a wider
+    head, so they keep their height and say what they say by how far forward
+    or back they are thrown; the body, the head, and the feet do the rest.
+    """
+    return ((degrees, 0.0, 0.0), STILL)
+
+
+def wave(phase: float, cycles: float = 1.0) -> float:
+    """A sine through cycles turns of the loop, so the clip closes on itself."""
+    return math.sin(cycles * phase)
+
+
+def anger_pose(phase: float) -> Pose:
+    """Stiff and squared up: arms pushed back and held rigid, the chin lowered, and a small stamp of one foot."""
+    huff = wave(phase, 2.0)
+    stamp = math.sin(math.pi * min(max((phase / (2.0 * math.pi) - 0.55) / 0.25, 0.0), 1.0))
+    # A tremor of held tension runs through the arms.
+    shake = 2.0 * wave(phase, 8.0)
+    return {
+        "pivot_leg_L": (STILL, STILL),
+        "pivot_leg_R": ((-24.0 * stamp, 0.0, 0.0), (0.0, 0.0, 0.012 * stamp)),
+        "pivot_arm_L": swung(26.0 + shake),
+        "pivot_arm_R": swung(26.0 - shake),
+        "pivot_body": ((8.0 + 1.2 * huff, 0.0, 0.0), (0.0, 0.0, -0.004)),
+        "pivot_head": ((10.0 - 1.0 * huff, 0.0, 0.0), STILL),
+    }
+
+
+def disgust_pose(phase: float) -> Pose:
+    """Keeping something nasty away: one hand pushes it off while the head and body turn and lean the other way."""
+    refuse = wave(phase, 2.0)
+    return {
+        "pivot_leg_L": (STILL, STILL),
+        "pivot_leg_R": (STILL, STILL),
+        # The thing is on the -X side: the L arm goes out at it, and the R arm is thrown back out of its way.
+        "pivot_arm_L": swung(-62.0 + 5.0 * refuse),
+        "pivot_arm_R": swung(48.0),
+        "pivot_body": ((-5.0, 7.0, 14.0), (0.015, 0.02, 0.0)),
+        # The face turns aside, but not so far that it cannot be read.
+        "pivot_head": ((-2.0, 6.0, 12.0 + 4.0 * refuse), STILL),
+    }
+
+
+def fear_pose(phase: float) -> Pose:
+    """Shrinking back: a step away, sunk low, the head drawn in, and both hands held out in front, trembling."""
+    tremble = wave(phase, 6.0)
+    breath = wave(phase)
+    return {
+        "pivot_leg_L": (STILL, (0.0, 0.06, 0.0)),
+        "pivot_leg_R": (STILL, (0.0, 0.015, 0.0)),
+        "pivot_arm_L": swung(-52.0 + 3.0 * tremble),
+        "pivot_arm_R": swung(-52.0 - 3.0 * tremble),
+        "pivot_body": ((-9.0, 0.0, 1.4 * tremble), (0.0, 0.045, -0.04 + 0.002 * breath)),
+        "pivot_head": ((9.0, 0.0, 1.2 * tremble), (0.0, 0.0, -0.014)),
+    }
+
+
+def happiness_pose(phase: float) -> Pose:
+    """A little jump for joy with both arms thrown up and out."""
+    share = phase / (2.0 * math.pi)
+    # Half the loop is the hop; before and after it the body dips.
+    air = math.sin(math.pi * min(max((share - 0.3) / 0.45, 0.0), 1.0))
+    dip = 0.5 * (1.0 - math.cos(2.0 * math.pi * min(share / 0.3, 1.0))) if share < 0.3 else (
+        0.5 * (1.0 - math.cos(2.0 * math.pi * min((share - 0.75) / 0.25, 1.0))) if share > 0.75 else 0.0
+    )
+    hop = 0.07 * air
+    # Swung this far forward, the arms are thrown out level, as high as the head lets them go.
+    cheer = swung(-84.0 - 8.0 * air + 16.0 * dip)
+    return {
+        "pivot_leg_L": ((8.0 * air, 0.0, 0.0), (0.0, 0.0, hop)),
+        "pivot_leg_R": ((8.0 * air, 0.0, 0.0), (0.0, 0.0, hop)),
+        "pivot_arm_L": cheer,
+        "pivot_arm_R": cheer,
+        "pivot_body": ((-4.0 + 4.0 * dip, 0.0, 0.0), (0.0, 0.0, hop - 0.02 * dip)),
+        "pivot_head": ((-8.0 + 4.0 * dip, 4.0 * wave(phase), 0.0), STILL),
+    }
+
+
+def sadness_pose(phase: float) -> Pose:
+    """Drooping: the head hangs, the body sags forward, and the arms trail."""
+    sigh = wave(phase)
+    sway = math.cos(phase)
+    return {
+        "pivot_leg_L": (STILL, STILL),
+        "pivot_leg_R": (STILL, STILL),
+        "pivot_arm_L": swung(-10.0 + 1.5 * sigh),
+        "pivot_arm_R": swung(-10.0 + 1.5 * sigh),
+        "pivot_body": ((9.0 + 1.2 * sigh, 0.8 * sway, 0.0), (0.0, 0.0, -0.014 - 0.003 * sigh)),
+        # Bowed, but not so far that the face is lost from the playroom's camera above.
+        "pivot_head": ((15.0 + 1.5 * sigh, 2.0, 3.0 * sway), STILL),
+    }
+
+
+def surprise_pose(phase: float) -> Pose:
+    """Caught off guard: rocked back with both arms flown out behind, held."""
+    breath = wave(phase, 2.0)
+    return {
+        "pivot_leg_L": (STILL, STILL),
+        "pivot_leg_R": (STILL, STILL),
+        "pivot_arm_L": swung(84.0 + 2.0 * breath),
+        "pivot_arm_R": swung(84.0 + 2.0 * breath),
+        "pivot_body": ((-8.0 - 0.6 * breath, 0.0, 0.0), (0.0, 0.012, 0.01 + 0.002 * breath)),
+        "pivot_head": ((-8.0, 0.0, 1.5 * wave(phase)), STILL),
+    }
+
+
+EMOTION_CLIPS: tuple[Clip, ...] = (
+    ("anger", 60, 1, anger_pose),
+    ("disgust", 60, 2, disgust_pose),
+    ("fear", 30, 1, fear_pose),
+    ("happiness", 30, 1, happiness_pose),
+    ("sadness", 90, 3, sadness_pose),
+    ("surprise", 60, 2, surprise_pose),
+)
+# Where in its loop each emotion is caught for a still picture, as a share of the loop.
+EMOTION_STILLS = {"anger": 0.68, "disgust": 0.12, "fear": 0.25, "happiness": 0.52, "sadness": 0.25, "surprise": 0.12}
+PLAYER_CLIPS: tuple[Clip, ...] = PLAYER_MOVES + EMOTION_CLIPS
+
+
 @dataclass(frozen=True)
 class Arms:
     """A character's arms, what they must hang clear of, and the clips to measure them through."""
@@ -898,7 +1257,11 @@ PLAYER_ARMS = Arms(
     hands=("player_hand_L", "player_hand_R"),
     # The inner half of a sleeve joins the tunic at the shoulder, so it is not a gap.
     tubes=(("player_sleeve_L", 0.5), ("player_sleeve_R", 0.5)),
-    body=("player_tunic", "player_tunic_hem", "player_backpack", "player_pack_flap", "player_shoe_L", "player_shoe_R"),
+    # The head and the widest thing worn on it are here for the emotions, which raise the hands.
+    body=(
+        "player_tunic", "player_tunic_hem", "player_backpack", "player_pack_flap", "player_shoe_L", "player_shoe_R",
+        "player_head", "player_scarf_hood", "player_scarf_band",
+    ),
     looks={
         "trousers": ("player_trousers_L", "player_trousers_R"),
         "skirt": ("player_skirt", "player_skirt_leg_L", "player_skirt_leg_R"),
@@ -1115,18 +1478,20 @@ def add_friend_face(
     blush: bpy.types.Material,
     eye_size: tuple[float, float],
     brow_tilt: float,
+    brow_ceiling: float,
     smile_span: float,
     smile_rise: float,
 ) -> None:
-    """The head and its painted-on face. brow_tilt (degrees) raises the brows' inner ends."""
+    """The head and its painted-on face.
+
+    brow_tilt (degrees) raises the brows' inner ends; brow_ceiling is the
+    pitch where the hair begins over them (see add_face()).
+    """
     add_ico(f"{prefix}_head", tuple(HEAD_CENTER), tuple(HEAD_RADII), skin, subdivisions=4, smooth=True)
-    for side, sign in (("L", -1.0), ("R", 1.0)):
-        add_face_decal(f"{prefix}_eye_{side}", sign * 19.0, 1.0, *eye_size, eyes, lift=0.005)
-        add_face_decal(f"{prefix}_eye_{side}_glint", sign * 19.0 - 2.4, 6.0, 0.011, 0.014, MATERIALS["Soft White"], lift=0.008)
-        add_face_decal(f"{prefix}_brow_{side}", sign * 19.5, 17.5, 0.036, 0.0085, hair, lift=0.006, tilt=-sign * brow_tilt)
-        add_face_decal(f"{prefix}_cheek_{side}", sign * 35.0, -17.0, 0.046, 0.027, blush, lift=0.0035)
-    add_ico(f"{prefix}_nose", tuple(head_point(0.0, -8.0, -0.004)), (0.02, 0.016, 0.017), skin_light, smooth=True)
-    add_smile(f"{prefix}_smile", smile_span, -27.0, smile_rise, 1.5, smile)
+    add_face(
+        prefix, skin_light, hair, eyes=eyes, smile=smile, blush=blush, eye_size=eye_size,
+        brow=(17.5, 0.0085, brow_tilt), brow_ceiling=brow_ceiling, smile_span=smile_span, smile_rise=smile_rise,
+    )
 
 
 def add_friend_hair(name: str, forehead: float, nape: float, mat: bpy.types.Material, *, thickness: float = 0.006) -> bpy.types.Object:
@@ -1183,7 +1548,8 @@ def build_friend_a() -> None:
             add_friend_face(
                 prefix, skin, skin_light, hair,
                 eyes=MATERIALS["A Eyes"], smile=MATERIALS["A Smile"], blush=MATERIALS["A Blush"],
-                eye_size=(0.036, 0.055), brow_tilt=11.0, smile_span=8.5, smile_rise=3.5,
+                # Her hair is drawn back off a high forehead.
+                eye_size=(0.036, 0.055), brow_tilt=11.0, brow_ceiling=38.0, smile_span=8.5, smile_rise=3.5,
             )
             # Hair drawn back over the head into two round puffs, each held by a yellow tie.
             add_friend_hair(f"{prefix}_hair_cap", 41.0, -24.0, hair)
@@ -1231,7 +1597,8 @@ def build_friend_b() -> None:
             add_friend_face(
                 prefix, skin, skin_light, hair,
                 eyes=MATERIALS["Ink"], smile=MATERIALS["Smile"], blush=MATERIALS["B Blush"],
-                eye_size=(0.032, 0.052), brow_tilt=-9.0, smile_span=9.0, smile_rise=4.0,
+                # His fringe sweeps across the forehead, low over the brows.
+                eye_size=(0.032, 0.052), brow_tilt=-9.0, brow_ceiling=21.5, smile_span=9.0, smile_rise=4.0,
             )
             # Short hair with a thick fringe swept across the brow to one side, where
             # it kicks up; a lime clip holds the other end back.
@@ -1266,10 +1633,12 @@ def friend_idle(*, tempo: int, breath: float, sway: float, look: float, nod: flo
 # Friend A is quiet: slow breaths, her head a little to one side.
 FRIEND_A_CLIPS: tuple[Clip, ...] = (
     ("idle", IDLE_FRAMES, 3, friend_idle(tempo=2, breath=0.0035, sway=0.7, look=2.5, nod=1.0, tilt=2.5, arms=(2.5, 2.5))),
+    *EMOTION_CLIPS,
 )
 # Friend B cannot keep still: quicker breaths, rocking, his head turning to look about.
 FRIEND_B_CLIPS: tuple[Clip, ...] = (
     ("idle", IDLE_FRAMES, 3, friend_idle(tempo=3, breath=0.0055, sway=1.6, look=7.0, nod=-1.0, tilt=-2.0, arms=(3.2, 3.2))),
+    *EMOTION_CLIPS,
 )
 
 FRIEND_A_ARMS = Arms(
@@ -1279,7 +1648,7 @@ FRIEND_A_ARMS = Arms(
     tubes=(("friend_a_forearm_L", 0.0), ("friend_a_forearm_R", 0.0)),
     body=(
         "friend_a_dress", "friend_a_dress_hem", "friend_a_dress_sash", "friend_a_dress_panel",
-        "friend_a_leg_L", "friend_a_leg_R", "friend_a_shoe_L", "friend_a_shoe_R",
+        "friend_a_leg_L", "friend_a_leg_R", "friend_a_shoe_L", "friend_a_shoe_R", "friend_a_head",
     ),
     looks={"": ()},
     clips=FRIEND_A_CLIPS,
@@ -1290,7 +1659,7 @@ FRIEND_B_ARMS = Arms(
     tubes=(("friend_b_sleeve_L", 0.5), ("friend_b_sleeve_R", 0.5)),
     body=(
         "friend_b_jacket", "friend_b_jacket_hem", "friend_b_shirt",
-        "friend_b_leg_L", "friend_b_leg_R", "friend_b_shoe_L", "friend_b_shoe_R",
+        "friend_b_leg_L", "friend_b_leg_R", "friend_b_shoe_L", "friend_b_shoe_R", "friend_b_head",
     ),
     looks={"": ()},
     clips=FRIEND_B_CLIPS,
@@ -1382,9 +1751,19 @@ def export_asset(key: str, directory: Path = OUTPUT_DIR) -> Path:
         export_cameras=False,
         export_lights=False,
         export_extras=True,
-        # Props have no clips; each NLA track name of a character becomes one animation.
+        # The painted faces: one morph target per shape key.
+        export_morph=True,
+        export_morph_normal=False,
+        export_morph_tangent=False,
+        export_morph_animation=False,
+        # Props have no clips. A character's clips are its pivots' actions, and
+        # the actions parked on NLA tracks of one name become one animation.
+        # Exported as actions, the exporter knows what each one keys: a pivot
+        # an emotion holds still, away from its rest, stays in the clip, and
+        # the scale no clip touches is left out.
         export_animations=True,
-        export_animation_mode="NLA_TRACKS",
+        export_animation_mode="ACTIONS",
+        export_merge_animation="NLA_TRACK",
         export_optimize_animation_size=True,
         # Clips start at time zero, so a loop is exactly as long as its stride.
         export_anim_slide_to_zero=True,
@@ -1515,7 +1894,7 @@ def validate_exports(paths: list[Path]) -> None:
         "ball": (0.30, 0.38),
         "block": (0.27, 0.33),
     }
-    expected_clips = {PLAYER_KEY: {"idle", "walk"}, FRIEND_A_KEY: {"idle"}, FRIEND_B_KEY: {"idle"}}
+    expected_clips = {PLAYER_KEY: {"idle", "walk", *EMOTIONS}, FRIEND_A_KEY: {"idle", *EMOTIONS}, FRIEND_B_KEY: {"idle", *EMOTIONS}}
     print("\n=== Independent GLB validation ===")
     for path in paths:
         if not path.is_file() or path.stat().st_size < 1024:
@@ -1535,6 +1914,12 @@ def validate_exports(paths: list[Path]) -> None:
         clips = {action.name.split("_")[0] for action in bpy.data.actions}
         if clips != expected_clips.get(path.stem, set()):
             raise RuntimeError(f"{path.name}: unexpected clips {sorted(clips)}")
+        if path.stem in expected_clips:
+            # The character's own name for its nodes: player, friend_a, or friend_b.
+            prefix = path.stem.removesuffix("-cartoon").replace("-", "_")
+            faces = {obj.name: [key.name for key in obj.data.shape_keys.key_blocks[1:]] for obj in meshes if obj.data.shape_keys}
+            if set(faces) != {f"{prefix}_{feature}" for feature in FACE_FEATURES} or any(keys != list(EMOTIONS) for keys in faces.values()):
+                raise RuntimeError(f"{path.name}: each feature of the face should carry one shape per emotion, found {faces}")
         if path.stem in {"ball", "block"}:
             center_x = (mins.x + maxs.x) * 0.5
             center_y = (mins.y + maxs.y) * 0.5
@@ -1595,11 +1980,78 @@ def render_views(directory: Path, heights: dict[str, float]) -> None:
     scene.render.filepath = "//cast-lineup.png"
 
 
+def show_emotion(key: str, emotion: str | None, *, body: bool) -> None:
+    """Puts one character's face, and with body its pose too, into an emotion; None returns it to rest."""
+    scene = bpy.context.scene
+    for obj in ASSET_COLLECTIONS[key].objects:
+        if obj.type == "MESH" and obj.data.shape_keys:
+            for shape in obj.data.shape_keys.key_blocks[1:]:
+                shape.value = 1.0 if shape.name == emotion else 0.0
+        if obj.type == "EMPTY" and obj.animation_data:
+            posed = emotion if body else None
+            obj.animation_data.action = bpy.data.actions[f"{posed} {obj.name}"] if posed else None
+            if not posed:
+                obj.rotation_euler = (0.0, 0.0, 0.0)
+                obj.location = Vector(PIVOT_ORIGINS[obj.name]) - PIVOT_ORIGINS.get(obj.parent.name, Vector())
+    frames = next((frames for name, frames, _, _ in EMOTION_CLIPS if name == emotion), 0)
+    scene.frame_set(1 + round(EMOTION_STILLS.get(emotion, 0.0) * frames) if body else 1)
+
+
+def render_emotions(directory: Path, heights: dict[str, float]) -> None:
+    """Saves each character's emotions twice: `<key>-<emotion>-face.png` and `<key>-<emotion>-body.png`.
+
+    The face is the emotion's face alone, on the resting body, as the game
+    shows it close up. The body is the face with the emotion's clip.
+    `<key>-rest-*` is the resting child, for comparison. Call it after
+    create_preview_scene(), which mutes the clips.
+    """
+    scene = bpy.context.scene
+    lineup_camera, resolution = scene.camera, (scene.render.resolution_x, scene.render.resolution_y)
+    camera_data = bpy.data.cameras.new("Emotion Camera")
+    camera = bpy.data.objects.new("Emotion Camera", camera_data)
+    scene.collection.objects.link(camera)
+    scene.camera = camera
+    labels = [obj for obj in bpy.data.objects if obj.name.startswith("Label ")]
+    for obj in labels:
+        obj.hide_render = True
+    # Each shot: the camera's angle around the character, the height it looks at and its distance as multiples of the character's height, the lens, and the picture's size.
+    shots = {"face": (6.0, 0.68, 1.3, 70.0, (480, 480)), "body": (20.0, 0.54, 3.3, 60.0, (480, 640))}
+    for key, height in heights.items():
+        for other, collection in ASSET_COLLECTIONS.items():
+            collection.hide_render = other != key
+        root = ASSET_ROOTS[key]
+        placed = (root.location.copy(), root.rotation_euler.z)
+        root.location = (0.0, 0.0, 0.0)
+        for emotion in (None, *EMOTIONS):
+            for shot, (angle, target, distance, lens, size) in shots.items():
+                show_emotion(key, emotion, body=shot == "body")
+                root.rotation_euler.z = math.radians(angle)
+                camera_data.lens = lens
+                scene.render.resolution_x, scene.render.resolution_y = size
+                camera.location = (0.0, -height * distance, height * (target + distance * 0.08))
+                point_at(camera, (0.0, 0.0, height * target))
+                scene.render.filepath = str(directory / f"{key}-{emotion or 'rest'}-{shot}.png")
+                bpy.ops.render.render(write_still=True)
+        show_emotion(key, None, body=True)
+        root.location, root.rotation_euler.z = placed
+    for collection in ASSET_COLLECTIONS.values():
+        collection.hide_render = False
+    for obj in labels:
+        obj.hide_render = False
+    bpy.data.objects.remove(camera)
+    scene.camera = lineup_camera
+    scene.render.resolution_x, scene.render.resolution_y = resolution
+    scene.render.filepath = "//cast-lineup.png"
+
+
 def main() -> None:
     arguments = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
     views = Path(arguments[arguments.index("--views") + 1]).resolve() if "--views" in arguments else None
     if views:
         views.mkdir(parents=True, exist_ok=True)
+    emotions = Path(arguments[arguments.index("--emotions") + 1]).resolve() if "--emotions" in arguments else None
+    if emotions:
+        emotions.mkdir(parents=True, exist_ok=True)
 
     reset_scene()
     make_materials()
@@ -1622,8 +2074,11 @@ def main() -> None:
     create_preview_scene()
     bpy.ops.wm.save_as_mainfile(filepath=str(BLEND_PATH))
     bpy.ops.render.render(write_still=True)
+    heights = {key: float(ASSET_ROOTS[key]["height_m"]) for key in (PLAYER_KEY, FRIEND_A_KEY, FRIEND_B_KEY)}
     if views:
-        render_views(views, {key: float(ASSET_ROOTS[key]["height_m"]) for key in (PLAYER_KEY, FRIEND_A_KEY, FRIEND_B_KEY)})
+        render_views(views, heights)
+    if emotions:
+        render_emotions(emotions, heights)
     validate_exports(exported)
     print(f"\nSource:  {BLEND_PATH.relative_to(REPO_ROOT)}")
     print(f"Preview: {PREVIEW_PATH.relative_to(REPO_ROOT)}")

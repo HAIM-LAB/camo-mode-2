@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { Object3D, PropertyBinding } from 'three';
+import { EMOTIONS } from '../src/emotions';
 import { PlayerAvatar } from '../src/player-avatar';
 import { DEFAULT_PLAYER_LOOK, PLAYER_STYLES, PlayerStyleId } from '../src/player-look';
 import { loadPlayerModel, shownParts } from './helpers/player-model';
@@ -39,7 +40,8 @@ function widestTurn(avatar: PlayerAvatar, target: Object3D, seconds: number, spe
 describe('player avatar', () => {
   it.each(STYLES)('binds every track of the %s model\'s idle and walk clips to a joint it has', async (style) => {
     const model = await loadPlayerModel(style);
-    expect(model.animations.map((clip) => clip.name).sort()).toEqual(['idle', 'walk']);
+    // Beside them the model carries a clip for each emotion (tests/emotions.test.ts).
+    expect(model.animations.map((clip) => clip.name).sort()).toEqual([...EMOTIONS, 'idle', 'walk'].sort());
     for (const clip of model.animations) {
       expect(clip.duration, clip.name).toBeGreaterThan(0.3);
       expect(clip.tracks.length, clip.name).toBeGreaterThan(0);

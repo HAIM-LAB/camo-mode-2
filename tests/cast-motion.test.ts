@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { Object3D, PropertyBinding, SkinnedMesh } from 'three';
+import { AnimationClip, Object3D, PropertyBinding, SkinnedMesh } from 'three';
 import { IdleMotion } from '../src/cast-motion';
 import { CastAssetId } from '../src/config';
+import { EMOTIONS } from '../src/emotions';
 import { PLAYER_STYLES, PlayerStyleId } from '../src/player-look';
 import { loadCastModel } from './helpers/player-model';
 
@@ -73,8 +74,10 @@ function isSkinned(model: Object3D): boolean {
 describe('the cast in each style', () => {
   it.each(CAST)('the %s %s carries one idle clip, bound to joints it has', async (style, name) => {
     const model = await loadCastModel(name, style);
-    expect(model.animations.map((clip) => clip.name)).toEqual(['idle']);
-    const [idle] = model.animations;
+    // The friends also carry a clip for each emotion (tests/emotions.test.ts); Camo does not.
+    const emotions = name === 'camo' ? [] : EMOTIONS;
+    expect(model.animations.map((clip) => clip.name).sort()).toEqual([...emotions, 'idle'].sort());
+    const idle = AnimationClip.findByName(model.animations, 'idle') as AnimationClip;
     expect(idle.duration).toBeGreaterThan(2);
     expect(idle.tracks.length).toBeGreaterThan(0);
     // A clip that started late would hold its first frame on every loop.

@@ -11,6 +11,8 @@ import {
 } from 'three';
 import { AssetLoadSummary, OptionalAssetLoader, createVisualTarget } from './assets';
 import { CastMotion, IdleMotion } from './cast-motion';
+import type { EmotionPreview, PreviewAvatar } from './emotion-preview';
+import { ShownEmotion } from './emotions';
 import {
   AssetId,
   PLAYER_SPAWN,
@@ -74,6 +76,8 @@ export interface DemoSnapshot {
   playerMotion: AvatarMotion;
   /** What each other character is doing, by entity id: its `idle` clip, or `still`. */
   castMotion: Record<string, CastMotion>;
+  /** The emotion each avatar is showing, by id (`player` and the friends), or null in idle. */
+  emotions: Record<string, ShownEmotion | null>;
 }
 
 declare global {
@@ -152,6 +156,8 @@ export class CamoDemoApp {
   private readonly look: PlayerLook;
   private readonly sceneFlags: SceneFlags = {};
   private carried?: SceneEntity;
+  /** The dev server's emotion preview, when the address asks for it. */
+  private emotionPreview?: EmotionPreview;
   private lastPromptSignature = '';
   private ready = false;
   private elapsed = 0;
@@ -215,6 +221,7 @@ export class CamoDemoApp {
     this.animationFrame = requestAnimationFrame(this.renderFrame);
     void this.loadOptionalAssets();
     void this.dialogue.init();
+    void this.loadEmotionPreview();
   }
 
   stop(): void {
@@ -314,6 +321,7 @@ export class CamoDemoApp {
     const delta = this.clock.getDelta();
     this.elapsed += delta;
     this.player.update(this.keys, delta);
+    this.emotionPreview?.update(delta);
     this.updatePlayer(delta);
     this.updateCamera(delta);
     this.dialogue.update();
@@ -340,6 +348,7 @@ export class CamoDemoApp {
   }
 
   private updateCamera(delta: number): void {
+    if (this.emotionPreview?.frame(this.camera)) return;
     this.desiredCameraPosition.copy(this.player.position).add(CAMERA_OFFSET);
     this.camera.position.lerp(this.desiredCameraPosition, 1 - Math.exp(-6.5 * delta));
     this.cameraTarget.copy(this.player.position).add(CAMERA_LOOK_OFFSET);
@@ -488,6 +497,31 @@ export class CamoDemoApp {
     };
   }
 
+  /** The avatars that show emotions: the player and both friends. */
+  private avatars(): PreviewAvatar[] {
+    const friends = this.entities.flatMap((entity) => (
+      entity.kind === 'friend' && entity.idle
+        ? [{ id: entity.id, root: entity.root, height: entity.idle.height ?? entity.labelHeight, emotions: entity.idle.emotions }]
+        : []
+    ));
+    return [{ id: 'player', root: this.playerRoot, height: this.avatar.height, emotions: this.avatar.emotions }, ...friends];
+  }
+
+  /**
+   * Loads the emotion preview on the dev server. A build replaces the condition
+   * with `false` and drops the import with it, so a built game has no preview.
+   */
+  private async loadEmotionPreview(): Promise<void> {
+    if (import.meta.env.DEV) {
+      const { EmotionPreview, PREVIEW_FRAMING } = await import('./emotion-preview');
+      this.emotionPreview = EmotionPreview.fromSearch(
+        window.location.search,
+        () => this.avatars(),
+        PREVIEW_FRAMING[this.look.style],
+      );
+    }
+  }
+
   private renderAssetStatus(summary: AssetLoadSummary): void {
     const text = this.assetStatus.querySelector('span:last-child');
     if (!text) return;
@@ -547,6 +581,7 @@ export class CamoDemoApp {
       castMotion: Object.fromEntries(
         this.entities.flatMap((entity) => (entity.idle ? [[entity.id, entity.idle.motion]] : [])),
       ),
+      emotions: Object.fromEntries(this.avatars().map((avatar) => [avatar.id, avatar.emotions.current ?? null])),
     };
   }
 }
