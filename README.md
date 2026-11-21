@@ -88,4 +88,6 @@ The production preview is also served at `http://localhost:4173`; the dialogue p
 
 A research inspector — current beat, live emotion vector, which edge fired last turn and why, and the last assembled prompt — is available with the backtick key or `?debug=1`. It is off by default and never appears in a demo run.
 
+The player and both friends can show six emotions (anger, disgust, fear, happiness, sadness, surprise), as a face alone or as a face and a body; [`docs/asset-contract.md`](docs/asset-contract.md#emotions) describes them and the one function that plays them. To look at them, add `&emotions` on the dev server (`http://localhost:4173/?skipMenu=1&emotions`): every avatar cycles through the six, keys 1 to 6 hold one, 0 returns to idle, F swaps face-only and face-and-body, and C cycles again. `src/emotion-preview.ts` lists the other parameters. This preview is a development aid: the dev server loads it and a built game does not contain it. The smoke-test snapshot reports the emotion each avatar is showing under `emotions`.
+
 For the five-minute team walkthrough, interactive/narrated boundaries, and review capture, see [`docs/presenter-notes.md`](docs/presenter-notes.md) and [`docs/review/integrated-scene.png`](docs/review/integrated-scene.png).

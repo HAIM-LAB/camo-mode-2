@@ -4,6 +4,7 @@ import {
   HemisphereLight,
   PCFSoftShadowMap,
   SRGBColorSpace,
+  Vector3,
   WebGLRenderer,
 } from 'three';
 
@@ -44,4 +45,22 @@ export function createPlayroomLights(halfWidth: number, halfHeight: number): [He
   // Smooth-shaded characters would otherwise shade themselves in a moire of stripes.
   sun.shadow.normalBias = 0.03;
   return [hemisphere, sun];
+}
+
+/**
+ * A soft light for a close-up of an avatar's face. The playroom's sun stands
+ * high and to one side, which leaves a face seen from the front flat and, on
+ * darker skin, too dark to read an expression from. This one shines from in
+ * front of the face, a little above and across from the sun, and casts no
+ * shadow.
+ *
+ * Add the light and its `target` to the avatar's root (its origin on the
+ * floor, facing +Z), so the light turns with the avatar; `face` is where the
+ * middle of the face is in that space. Remove both when the close-up ends.
+ */
+export function createFaceLight(face: Vector3): DirectionalLight {
+  const light = new DirectionalLight(0xfff3e4, 2.1);
+  light.position.copy(face).add(new Vector3(-0.9, 0.55, 2));
+  light.target.position.copy(face);
+  return light;
 }

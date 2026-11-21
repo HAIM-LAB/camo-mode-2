@@ -1,5 +1,6 @@
 import {
   Box3,
+  BufferAttribute,
   Group,
   Material,
   Mesh,
@@ -54,12 +55,32 @@ export function disposeObject(root: Object3D): void {
 }
 
 /**
+ * A model's bounds as it rests, from its geometry. A face's morph targets
+ * reach a little beyond the resting face, and a geometry's own bounding box
+ * counts them in; they are not part of where the model stands or how tall it
+ * is. (A skinned mesh's own bounds are not usable until its skeleton has
+ * rendered once, so they are not asked either.)
+ */
+export function restBounds(model: Object3D): Box3 {
+  const bounds = new Box3();
+  const part = new Box3();
+  model.updateWorldMatrix(true, true);
+  model.traverse((child) => {
+    if (!(child instanceof Mesh)) return;
+    const position = child.geometry.getAttribute('position');
+    if (position instanceof BufferAttribute) {
+      bounds.union(part.setFromBufferAttribute(position).applyMatrix4(child.matrixWorld));
+    }
+  });
+  return bounds;
+}
+
+/**
  * Moves the model's bounds to floor contact and centers them in X/Z. Scale is
  * deliberately untouched: contract-compliant models already resolve to a no-op.
  */
 export function normalizeModelPlacement(model: Object3D): void {
-  model.updateMatrixWorld(true);
-  const bounds = new Box3().setFromObject(model);
+  const bounds = restBounds(model);
   if (bounds.isEmpty()) return;
 
   const center = bounds.getCenter(new Vector3());

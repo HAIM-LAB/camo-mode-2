@@ -40,11 +40,38 @@ A character is the same individual in both styles. Keep these when regenerating 
 What the application relies on:
 
 - Names: every node of a friend's model starts with `friend_a_` or `friend_b_`, and of Camo's with `camo_`. None starts with `player_`, which character customization repaints and hides by name.
-- Clips: each model carries one clip, `idle`, looping in place. `src/cast-motion.ts` plays it, each character starting at a different point of the loop. These characters stay where they stand, so there is no walk. A model without the clip still works: it stands still, and Camo's procedural stand-in bobs instead.
-- Poses: the friends stand as the matching player does, arms relaxed and clear of the body. The generators measure that gap through the idle and fail under 20 mm, and the realistic generators also fail if a planted foot moves.
+- Clips: each model carries `idle`, looping in place. `src/cast-motion.ts` plays it, each character starting at a different point of the loop. These characters stay where they stand, so there is no walk. A model without the clip still works: it stands still, and Camo's procedural stand-in bobs instead. The friends also carry one clip and one face per emotion; see [Emotions](#emotions).
+- Poses: the friends stand as the matching player does, arms relaxed and clear of the body. The generators measure that gap through every clip and fail under 20 mm, and the realistic generators also fail if a planted foot moves.
 - Sizes: the cartoon friends stand 1.26 m and 1.15 m with their hair; the realistic ones 1.36 m and 1.38 m to the crown, beside the realistic player's 1.37 m. Camo is about 1.3 m long and 0.65 m tall in both. A friend's name label floats 0.22 m above the loaded model.
 
 `tests/cast-motion.test.ts` loads every one of these files and checks its clip, joints, height, and names; `tests/assets.test.ts` checks that every file a style asks for is shipped.
+
+## Emotions
+
+The player and both friends show the six basic emotions: `anger`, `disgust`, `fear`, `happiness`, `sadness`, and `surprise`. Camo does not. The game's whole knowledge of them is one list, `EMOTIONS` in `src/emotions.ts`, and a model gives an emotion its two layers by that name:
+
+- Its face: a morph target named for the emotion on every mesh of the face it moves. On a cartoon model those are the painted features, each redrawn: `<prefix>_eye_L`, `<prefix>_eye_L_glint`, `<prefix>_brow_L`, the same three ending in `R`, `<prefix>_smile`, and `<prefix>_tongue`, which only disgust sticks out. On a realistic model they are the skin (`<prefix>_body`), the eyebrows and eyelashes (`<prefix>_brows`, `<prefix>_lashes`), and whatever lies on the face and has to move with it: Friend A's `friend_a_hair_scalp`, and the player's beanie and head scarf. A mesh that carries one emotion's target carries all of them. The targets carry positions only: the game works out their normals when it binds a model (`src/morph-normals.ts`), so a face is lit as the shape it has taken.
+- Its body: a clip named for the emotion that holds the emotion's posture, looping in place as `idle` does. It turns every joint the idle turns, including the ones it holds still, so a held arm stays held.
+
+`playEmotion(avatar, emotion, options)` in `src/emotions.ts` is the one way to show an emotion, on the player's avatar or a friend's:
+
+- `extent: 'face'` changes the face and leaves the body in its idle, for a close-up of the head. `extent: 'body'`, the default, also fades the emotion's clip in over the idle.
+- The avatar eases back to idle by itself after `seconds` (3 unless given; `Infinity` holds the emotion). `clearEmotion(avatar)` returns it sooner, and the player's own first step ends the player's.
+- It returns false, and nothing changes, for a model without that emotion: a stand-in whose GLB has not loaded, or Camo.
+
+Each face is meant to be named from a close-up of the head alone, without a label, and each posture from the playroom's camera: the modes that teach emotions show the face first and then the body. They are drawn for clarity, not intensity, and stay a young child's and gentle. Anger is lowered brows, stiff arms, and a small stamp, never a raised hand; fear is wide eyes and shrinking back, never terror. A realistic face moves as a young child's does, in swells and dips rather than creases: the generator spreads each face's movement over the skin around it. A realistic mouth opens onto a plain dark inside: no teeth or tongue are modeled, and the inside has its own unlit material (`Player Mouth`, `friend_a mouth`, `friend_b mouth`), which a recolor of the skin must leave alone.
+
+A close-up needs its own light. The playroom's sun stands high and to one side, which leaves a face seen from the front flat, and too dark on deeper skin to read. `createFaceLight()` in `src/render.ts` makes a soft light for one face; add it to the avatar's root for as long as the camera is close.
+
+To add an emotion, give it the same name in three places and regenerate the models:
+
+1. `EMOTIONS` in `src/emotions.ts`.
+2. `blender/cast/generate_cast.py`: `EMOTIONS`, a face in `LOOKS`, and a posture in `EMOTION_CLIPS`. All three cartoon children share them.
+3. `blender/cast/generate_realistic_player.py`: `EMOTIONS`, a face in `FACES`, and a posture in `EMOTION_POSES`. The friends' generator uses the same tables.
+
+`tests/emotions.test.ts` loads every model and fails if an emotion's face or clip is missing, if two faces or two postures are too alike to tell apart, if a face alone moves the body, or if an avatar does not come back to its idle.
+
+To look at them, start the dev server and open `/?skipMenu=1&emotions`: every avatar cycles through the six. `src/emotion-preview.ts` lists the rest: one emotion held, the face alone, the camera on one avatar, and the keys that step through them. The preview is loaded by the dev server only and is not part of a built game.
 
 ## Player models
 
@@ -53,7 +80,7 @@ The child picks a style before customizing, and the style picks the model: `play
 The character menu customizes whichever model is loaded at runtime by name, so these names are API on both models. Keep them on the parts they cover today when regenerating a player; `tests/player-look.test.ts` loads the real files and fails if one disappears.
 
 Materials, repainted by name:
-- `Player Skin` carries the skin tone on both models. On the cartoon model `Player Skin Light` (nose) and `Player Blush` (cheeks) follow it, and `Ink` (eyes) and `Smile` (mouth) deepen on the darker tones so the painted face stays readable.
+- `Player Skin` carries the skin tone on both models. On the cartoon model `Player Skin Light` (nose) and `Player Blush` (cheeks) follow it, and `Ink` (eyes) and `Smile` (mouth) deepen on the darker tones so the painted face stays readable. Its eyebrows are painted in the hair's own color and are not repainted.
 - `Player Teal` (top), `Player Coral` (trousers), `Player Gold` and `Player Gold Dark` (beanie; also the cartoon backpack) carry the outfit. `Player Teal Dark` is the cartoon tunic's trim.
 - Five more follow the outfit: `Player Shoes` and `Player Scarf` take the beanie's color, `Player Scarf Dark` its darker shade, `Player Skirt` the top's trim, and `Player Leggings` the trousers' color.
 - On the realistic model the skin, top, and trousers are textured. Their textures are neutral detail maps, and the material color multiplies them, so repainting works the same way as on flat colors.
@@ -65,7 +92,7 @@ Part sets, shown or hidden by node-name prefix (one shared body per model):
 
 All parts export together, so each model's bounds include its tallest part: the beanie's bobble on the cartoon model, and on the realistic one the hair of a bare head, which stands about a centimeter above the beanie. The default look is Boy, trousers, and beanie in the authored colors.
 
-Clips: each model carries `idle` and `walk`, looping in place. `src/player-avatar.ts` finds them by those names, cross-fades between them, and plays the walk faster or slower with the player's speed. A model without both clips still works: it hops like the procedural stand-in.
+Clips: each model carries `idle` and `walk`, looping in place. `src/player-avatar.ts` finds them by those names, cross-fades between them, and plays the walk faster or slower with the player's speed. A model without both clips still works: it hops like the procedural stand-in. Each also carries one clip and one face per emotion; see [Emotions](#emotions).
 
 Each style has its own movement speed, also in `src/player-avatar.ts`. The cartoon player toddles across the room at 2.75 m/s. The realistic player moves at 1.81 m/s, an easy walk at its playroom size: its walk clip plants each foot for exactly that speed, so the feet do not slide. The model records the speed as its rig's `walk_speed`, and `tests/player-avatar.test.ts` fails if the game's speed for this player differs from it.
 

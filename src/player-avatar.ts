@@ -2,13 +2,12 @@ import {
   AnimationAction,
   AnimationClip,
   AnimationMixer,
-  Box3,
   MathUtils,
-  Mesh,
   Object3D,
   Vector3,
 } from 'three';
-import { createVisualTarget } from './assets';
+import { createVisualTarget, restBounds } from './assets';
+import { EmotionPlayer } from './emotions';
 import { PlayerLook, PlayerStyleId, applyPlayerLook } from './player-look';
 import { createPlayerFallback } from './procedural';
 
@@ -53,6 +52,8 @@ export type AvatarMotion = 'stand-in' | 'idle' | 'walk';
 export class PlayerAvatar {
   /** Add this to the scene; the asset loader swaps the GLB into it. */
   readonly visual = createVisualTarget(createPlayerFallback(), 'player');
+  /** The player's emotions; play one with playEmotion() from emotions.ts. Walking ends it. */
+  readonly emotions = new EmotionPlayer();
   private look: PlayerLook;
   private mixer?: AnimationMixer;
   private idle?: AnimationAction;
@@ -99,6 +100,7 @@ export class PlayerAvatar {
     this.idle = this.mixer.clipAction(idle).play();
     this.walk = this.mixer.clipAction(walk).play();
     this.walk.setEffectiveWeight(0);
+    this.emotions.bind(model, this.mixer);
     this.visual.position.y = 0;
     // Pose the model before its first frame, so it never flashes its bind pose.
     this.mixer.update(0);
@@ -122,9 +124,13 @@ export class PlayerAvatar {
       return;
     }
 
+    // An emotion is shown standing: its clip plants the feet, so a step ends it.
+    if (moving) this.emotions.clear();
+    this.emotions.update(delta);
+    const own = 1 - this.emotions.bodyShare;
     this.walkBlend = MathUtils.damp(this.walkBlend, moving ? 1 : 0, BLEND_RATE, delta);
-    this.walk.setEffectiveWeight(this.walkBlend);
-    this.idle.setEffectiveWeight(1 - this.walkBlend);
+    this.walk.setEffectiveWeight(this.walkBlend * own);
+    this.idle.setEffectiveWeight((1 - this.walkBlend) * own);
     this.walk.timeScale = MathUtils.clamp(
       speed / STYLE_MOTION[this.look.style].walkSpeed,
       ...WALK_RATE_RANGE,
@@ -133,20 +139,8 @@ export class PlayerAvatar {
   }
 }
 
-/**
- * A model's height in its rest pose, from its geometry. A skinned mesh's own
- * bounds are not usable until its skeleton has rendered once, so they are not
- * asked.
- */
+/** A model's height in its rest pose, or 0 for a model with no geometry. */
 export function restHeight(model: Object3D): number {
-  const bounds = new Box3();
-  model.updateWorldMatrix(true, true);
-  model.traverse((child) => {
-    if (!(child instanceof Mesh)) return;
-    child.geometry.computeBoundingBox();
-    if (child.geometry.boundingBox) {
-      bounds.union(child.geometry.boundingBox.clone().applyMatrix4(child.matrixWorld));
-    }
-  });
+  const bounds = restBounds(model);
   return bounds.isEmpty() ? 0 : bounds.max.y - bounds.min.y;
 }
