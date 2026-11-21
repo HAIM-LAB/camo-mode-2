@@ -17,7 +17,7 @@ The game opens on a start menu. **Play** leads to a choice of three modes:
 - **Understanding Feelings**
 - **Friendships**
 
-All three lead into the same playroom today. `src/game-mode.ts` lists the modes and names the scene each one plays in, which is where a mode is sent somewhere of its own.
+Understanding Emotions is a guessing game of its own, described [below](#understanding-emotions). Understanding Feelings and Friendships lead into the playroom and its scenario. `src/game-mode.ts` lists the modes and names the scene each one plays in, which is where a mode is sent somewhere of its own.
 
 Picking a mode leads to a style choice between two characters, each shown live on its card:
 - **Cartoon**: a round-headed, stubby-limbed character with a painted-on face;
@@ -30,13 +30,27 @@ Picking one leads to character customization on a live preview of that character
 - trousers or skirt;
 - a beanie, a head scarf, or nothing on the head.
 
-**Let's play!** enters the playroom as that character, which idles and walks with its own animation. The realistic child walks rather than scampers, so it crosses the room more slowly than the cartoon character. A small label under the brand names the mode being played. The mode, the style, and the look are saved in the browser's `localStorage` and never leave the machine.
+**Let's play!** starts the chosen mode with that character. In the playroom it idles and walks with its own animation. The realistic child walks rather than scampers, so it crosses the room more slowly than the cartoon character. A small label under the brand names the mode being played. The mode, the style, and the look are saved in the browser's `localStorage` and never leave the machine.
 
-For development, add `?skipMenu=1` (for example [http://localhost:4173/?skipMenu=1](http://localhost:4173/?skipMenu=1)) to skip every menu and load straight into the playroom with the saved or default mode, style, and look. The default mode is Understanding Feelings.
+For development, add `?skipMenu=1` (for example [http://localhost:4173/?skipMenu=1](http://localhost:4173/?skipMenu=1)) to skip every menu and load straight into the saved or default mode, with the saved or default style and look. The default mode is Understanding Feelings, so a first visit lands in the playroom. On the dev server only, `&mode=emotions`, `&mode=feelings`, or `&mode=friendships` names the mode to skip into, whatever is saved: [http://localhost:4173/?skipMenu=1&mode=emotions](http://localhost:4173/?skipMenu=1&mode=emotions) opens the guessing game.
 
 **No API keys are required.** With no `.env` present the keyless mock brain drives the conversation from authored offline lines, so the full path — approach a character, open the panel, exchange turns, watch the story move — works out of the box.
 
+## Understanding Emotions
+
+One avatar at a time comes onto a small stage: the child's own character, Friend A, or Friend B, in the style the child picked. The camera zooms in, the avatar shows an emotion, and the child picks which one it is from four named choices. Camo is never asked about: a chameleon has no emotions to show.
+
+- A game asks about every emotion once on the face alone, then once more with the whole body. The emotion and the avatar both change from one round to the next.
+- A right answer is celebrated. A wrong one is met kindly: the game names the emotion, and the child can **Try again** or go on with **Next**. Nothing is scored or counted, and the steps at the top only show how far the game has come.
+- The choices work by touch, by mouse, and by keyboard: Tab or the arrow keys move between them, and Enter or Space picks.
+- **Menu**, or **Esc**, goes back to the mode choice at any time.
+- Nothing about a game is saved or sent anywhere: not the guesses, and not how it went.
+
+The game draws on the one list of emotions, `EMOTIONS` in `src/emotions.ts`, so an emotion added there is asked about too. `src/emotion-rounds.ts` holds the rules, `src/emotion-stage.ts` the stage, and `src/emotion-game.ts` the screen.
+
 ## Controls
+
+These are the playroom's:
 
 - **Arrow keys** or **WASD** — move around the room
 - **E** — pick up the nearest ball or building block; press again to drop it
@@ -84,7 +98,9 @@ npm run build
 npm run preview
 ```
 
-The production preview is also served at `http://localhost:4173`; the dialogue proxy is installed on it as well as on the dev server. `window.__CAMO_DEMO__.getState()` provides a read-only smoke-test snapshot of readiness, player and entity positions, carried item, active prompt, asset modes, dialogue state, the chosen mode, style, and look, and what the player model is doing (`idle`, `walk`, or `stand-in`). It exists once the playroom has started, so use `?skipMenu=1` for scripted checks.
+The production preview is also served at `http://localhost:4173`; the dialogue proxy is installed on it as well as on the dev server. `window.__CAMO_DEMO__.getState()` provides a read-only smoke-test snapshot of readiness, player and entity positions, carried item, active prompt, asset modes, dialogue state, the chosen mode, style, and look, and what the player model is doing (`idle`, `walk`, or `stand-in`). It exists once the playroom has started, so use `?skipMenu=1` for scripted checks, with `&mode=feelings` on the dev server if the browser last played Understanding Emotions.
+
+The guessing game has its own snapshot, `window.__CAMO_EMOTION_GAME__.getState()`, for as long as its screen is up: its phase, how many rounds are behind the child, the round being played with its right answer, and what the avatar on the stage is showing. It holds nothing the child has guessed.
 
 A research inspector — current beat, live emotion vector, which edge fired last turn and why, and the last assembled prompt — is available with the backtick key or `?debug=1`. It is off by default and never appears in a demo run.
 

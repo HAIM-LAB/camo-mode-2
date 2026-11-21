@@ -192,8 +192,42 @@
         </div>
       </section>
 
+      <!-- The Understanding Emotions guessing game: a screen of its own, drawn as the menus are. -->
+      <section id="emotion-game" class="menu emotion-game" aria-labelledby="emotion-game-title">
+        <header class="menu-head emotion-game__head">
+          <button id="emotion-game-back" class="menu-button menu-button--quiet" type="button">
+            <span aria-hidden="true">←</span>Menu
+          </button>
+          <h2 id="emotion-game-title"></h2>
+        </header>
+        <div id="emotion-game-progress" class="emotion-game__progress" role="img"></div>
+        <div id="emotion-game-stage" class="emotion-game__stage" role="img">
+          <div id="emotion-game-cheer" class="emotion-game__cheer" aria-hidden="true"></div>
+        </div>
+        <div class="emotion-game__panel">
+          <p id="emotion-game-kicker" class="eyebrow emotion-game__kicker"></p>
+          <p id="emotion-game-question" class="emotion-game__question" tabindex="-1"></p>
+          <div id="emotion-game-answer" class="emotion-game__answer">
+            <div
+              id="emotion-game-choices"
+              class="emotion-game__choices"
+              role="group"
+              aria-labelledby="emotion-game-question"
+            ></div>
+            <div id="emotion-game-feedback" class="emotion-game__feedback">
+              <span id="emotion-game-badge" class="emotion-game__badge" aria-hidden="true"></span>
+              <p class="emotion-game__verdict" role="status">
+                <strong id="emotion-game-verdict"></strong>
+                <span id="emotion-game-note"></span>
+              </p>
+              <div id="emotion-game-actions" class="emotion-game__actions"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <section id="fatal-error" class="fatal-error" role="alert" hidden>
-        <strong>The 3D playroom couldn’t start.</strong>
+        <strong>The game couldn’t start.</strong>
         <p id="fatal-error-message">Try refreshing in a browser with WebGL enabled.</p>
       </section>
     </main>

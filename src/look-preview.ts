@@ -1,10 +1,7 @@
 import {
   Clock,
-  CylinderGeometry,
   Group,
   MathUtils,
-  Mesh,
-  MeshStandardMaterial,
   PerspectiveCamera,
   Scene,
   Vector3,
@@ -14,7 +11,7 @@ import { OptionalAssetLoader, disposeObject } from './assets';
 import { assetUrls } from './config';
 import { PlayerAvatar } from './player-avatar';
 import { PlayerLook } from './player-look';
-import { createPlayroomLights, createRenderer } from './render';
+import { createPlatform, createPlayroomLights, createRenderer } from './render';
 
 // The character idles facing the child with a gentle sway; dragging spins it.
 const SWAY_ANGLE = 0.45; // radians either side of the dragged-to yaw
@@ -84,13 +81,7 @@ export class LookPreview {
     this.renderer = createRenderer(this.canvas, { alpha: true });
 
     this.scene.add(...createPlayroomLights(1.4, 1.4));
-    const platform = new Mesh(
-      new CylinderGeometry(this.framing.platform, this.framing.platform + 0.04, 0.06, 56),
-      new MeshStandardMaterial({ color: 0x8fcfae, roughness: 0.92, metalness: 0.02 }),
-    );
-    platform.position.y = -0.03;
-    platform.receiveShadow = true;
-    this.scene.add(platform, this.turntable);
+    this.scene.add(createPlatform(this.framing.platform), this.turntable);
     this.turntable.add(this.avatar.visual);
 
     void new OptionalAssetLoader(assetUrls(look.style))
