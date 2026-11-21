@@ -37,6 +37,11 @@
         </div>
       </header>
 
+      <p class="mode-chip">
+        <span class="eyebrow">Mode</span>
+        <strong id="mode-name"></strong>
+      </p>
+
       <aside class="controls-card" aria-label="Controls">
         <div class="eyebrow">Controls</div>
         <div class="control-row">
@@ -147,6 +152,16 @@
             Play<span aria-hidden="true">▶</span>
           </button>
         </div>
+      </section>
+
+      <section id="mode-menu" class="menu mode-menu" aria-labelledby="mode-title">
+        <header class="menu-head">
+          <button id="mode-back" class="menu-button menu-button--quiet" type="button">
+            <span aria-hidden="true">←</span>Back
+          </button>
+          <h2 id="mode-title">Pick a mode</h2>
+        </header>
+        <div id="mode-cards" class="mode-menu__cards"></div>
       </section>
 
       <section id="style-menu" class="menu style-menu" aria-labelledby="style-title">

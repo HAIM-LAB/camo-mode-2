@@ -22,6 +22,7 @@ import {
   DialogueController,
   DialogueSnapshot,
 } from './dialogue/controller';
+import { GameModeId, gameMode } from './game-mode';
 import {
   NearbyEntity,
   PlayerController,
@@ -68,6 +69,8 @@ export interface DemoSnapshot {
   entities: Record<string, { x: number; z: number; location?: string }>;
   /** Added by the conversational-agent layer; the fields above are unchanged. */
   dialogue: DialogueSnapshot;
+  /** The mode chosen in the menus. */
+  mode: GameModeId;
   /** The style and look chosen in the menus. */
   look: PlayerLook;
   /** What the player model is doing: its clip, or `stand-in` before the GLB binds. */
@@ -149,6 +152,7 @@ export class CamoDemoApp {
   private readonly cameraTarget = new Vector3();
   private readonly desiredCameraPosition = new Vector3();
   private readonly dialogue: DialogueController;
+  private readonly mode: GameModeId;
   private readonly look: PlayerLook;
   private readonly sceneFlags: SceneFlags = {};
   private carried?: SceneEntity;
@@ -157,8 +161,10 @@ export class CamoDemoApp {
   private elapsed = 0;
   private animationFrame = 0;
 
-  constructor(look: PlayerLook) {
+  constructor(look: PlayerLook, mode: GameModeId) {
     this.renderer = createRenderer(this.canvas);
+    this.mode = mode;
+    requiredElement<HTMLElement>('mode-name').textContent = gameMode(mode).label;
     this.look = look;
     this.avatar = new PlayerAvatar(look);
     this.player = new PlayerController(PLAYER_SPAWN, this.avatar.moveSpeed);
@@ -542,6 +548,7 @@ export class CamoDemoApp {
       assetModes,
       entities,
       dialogue: this.dialogue.snapshot(),
+      mode: this.mode,
       look: this.look,
       playerMotion: this.avatar.motion,
       castMotion: Object.fromEntries(

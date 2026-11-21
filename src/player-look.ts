@@ -1,4 +1,5 @@
 import { Color, Mesh, MeshStandardMaterial, Object3D } from 'three';
+import { ChoiceStorage, browserStorage } from './storage';
 
 /**
  * Player customization. The child first picks a style, which picks the model:
@@ -333,18 +334,7 @@ export function applyPlayerLook(root: Object3D, look: PlayerLook): void {
 
 const STORAGE_KEY = 'camo-mode-2.player-look';
 
-type LookStorage = Pick<Storage, 'getItem' | 'setItem'>;
-
-function browserStorage(): LookStorage | null {
-  try {
-    return globalThis.localStorage ?? null;
-  } catch {
-    // Some privacy modes throw on access rather than returning null.
-    return null;
-  }
-}
-
-export function loadPlayerLook(storage: LookStorage | null = browserStorage()): PlayerLook {
+export function loadPlayerLook(storage: ChoiceStorage | null = browserStorage()): PlayerLook {
   try {
     const saved = storage?.getItem(STORAGE_KEY);
     return normalizePlayerLook(saved ? JSON.parse(saved) : undefined);
@@ -353,7 +343,7 @@ export function loadPlayerLook(storage: LookStorage | null = browserStorage()): 
   }
 }
 
-export function savePlayerLook(look: PlayerLook, storage: LookStorage | null = browserStorage()): void {
+export function savePlayerLook(look: PlayerLook, storage: ChoiceStorage | null = browserStorage()): void {
   try {
     storage?.setItem(STORAGE_KEY, JSON.stringify(look));
   } catch {
