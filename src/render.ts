@@ -1,7 +1,10 @@
 import {
   ACESFilmicToneMapping,
+  CylinderGeometry,
   DirectionalLight,
   HemisphereLight,
+  Mesh,
+  MeshStandardMaterial,
   PCFSoftShadowMap,
   SRGBColorSpace,
   Vector3,
@@ -9,8 +12,9 @@ import {
 } from 'three';
 
 /**
- * The playroom and the character preview share one renderer setup and one
- * lighting rig, so a look chosen in the menu reads the same in the room.
+ * The playroom, the character preview, and the guessing game's stage share one
+ * renderer setup and one lighting rig, so a look chosen in the menu reads the
+ * same wherever it is drawn.
  */
 export function createRenderer(canvas: HTMLCanvasElement, options: { alpha?: boolean } = {}): WebGLRenderer {
   const renderer = new WebGLRenderer({
@@ -45,6 +49,20 @@ export function createPlayroomLights(halfWidth: number, halfHeight: number): [He
   // Smooth-shaded characters would otherwise shade themselves in a moire of stripes.
   sun.shadow.normalBias = 0.03;
   return [hemisphere, sun];
+}
+
+/**
+ * The round platform a character stands on where there is no room around it:
+ * `radius` meters across the top, which lies on the floor.
+ */
+export function createPlatform(radius: number): Mesh {
+  const platform = new Mesh(
+    new CylinderGeometry(radius, radius + 0.04, 0.06, 56),
+    new MeshStandardMaterial({ color: 0x8fcfae, roughness: 0.92, metalness: 0.02 }),
+  );
+  platform.position.y = -0.03;
+  platform.receiveShadow = true;
+  return platform;
 }
 
 /**

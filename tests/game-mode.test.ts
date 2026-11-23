@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_GAME_MODE, GAME_MODES, gameMode, loadGameMode, saveGameMode } from '../src/game-mode';
+import {
+  DEFAULT_GAME_MODE,
+  GAME_MODES,
+  gameMode,
+  gameModeFromSearch,
+  loadGameMode,
+  saveGameMode,
+} from '../src/game-mode';
 import { blockedStorage, memoryStorage } from './helpers/storage';
 
 describe('game modes', () => {
@@ -16,12 +23,33 @@ describe('game modes', () => {
     for (const mode of GAME_MODES) expect(gameMode(mode.id)).toBe(mode);
   });
 
-  it('leads every mode into the playroom', () => {
-    expect(GAME_MODES.map((mode) => mode.scene)).toEqual(['playroom', 'playroom', 'playroom']);
+  it('leads Understanding Emotions into the guessing game', () => {
+    expect(gameMode('emotions').scene).toBe('emotion-game');
   });
 
-  it('plays Understanding Feelings when no mode was ever picked', () => {
+  it('still leads Understanding Feelings and Friendships into the playroom', () => {
+    expect(gameMode('feelings').scene).toBe('playroom');
+    expect(gameMode('friendships').scene).toBe('playroom');
+    expect(GAME_MODES.filter((mode) => mode.scene !== 'playroom').map((mode) => mode.id)).toEqual(['emotions']);
+  });
+
+  it('plays Understanding Feelings, in the playroom, when no mode was ever picked', () => {
     expect(gameMode(DEFAULT_GAME_MODE).label).toBe('Understanding Feelings');
+    expect(gameMode(DEFAULT_GAME_MODE).scene).toBe('playroom');
+  });
+});
+
+describe('mode named in the address', () => {
+  it('reads any mode from ?mode=', () => {
+    for (const mode of GAME_MODES) {
+      expect(gameModeFromSearch(`?skipMenu=1&mode=${mode.id}`)).toBe(mode.id);
+    }
+  });
+
+  it('names no mode when the address asks for none, or for one that does not exist', () => {
+    for (const search of ['', '?skipMenu=1', '?mode=', '?mode=arcade', '?mode=Emotions']) {
+      expect(gameModeFromSearch(search)).toBeUndefined();
+    }
   });
 });
 

@@ -17,7 +17,7 @@ import {
 /** Axes with few choices, which share one row on wide screens. */
 const PAIRED_AXES: ReadonlySet<string> = new Set(['bottoms', 'headwear']);
 
-export type Screen = 'start' | 'mode' | 'style' | 'customize' | 'game' | 'error';
+export type Screen = 'start' | 'mode' | 'style' | 'customize' | 'game' | 'emotions' | 'error';
 
 /** `?skipMenu=1` goes straight into the game with the saved (or default) mode and look. */
 export function shouldSkipMenu(search: string): boolean {
@@ -36,14 +36,49 @@ export function isStrayClick(detail: number, sinceShownMs: number): boolean {
   return detail > 0 && sinceShownMs < SETTLE_MS;
 }
 
+/**
+ * Keeps input that began before a screen changed from choosing on it: the
+ * rest of a double click or tap, and the repeats of an Enter key held down.
+ */
+export class CarriedInputGuard {
+  /** When what is showing last changed, on the performance.now() clock. */
+  private changedAt = 0;
+
+  /** Call whenever the screen, or what it puts under the pointer, changes. */
+  settle(): void {
+    this.changedAt = performance.now();
+  }
+
+  /** Guards everything inside an element, until the signal, if one is given, aborts. */
+  watch(element: HTMLElement, signal?: AbortSignal): void {
+    element.addEventListener(
+      'click',
+      (event) => {
+        if (!isStrayClick(event.detail, performance.now() - this.changedAt)) return;
+        event.preventDefault();
+        event.stopPropagation();
+      },
+      { capture: true, signal },
+    );
+    element.addEventListener(
+      'keydown',
+      (event) => {
+        if (event.repeat && event.key === 'Enter') event.preventDefault();
+      },
+      { capture: true, signal },
+    );
+  }
+}
+
 /** The stylesheet shows exactly one screen, keyed off `body[data-screen]`. */
 export function showScreen(screen: Screen): void {
   document.body.dataset.screen = screen;
 }
 
-function requiredElement<T extends HTMLElement>(id: string): T {
+/** An element one of the screens is built on. */
+export function requiredElement<T extends HTMLElement>(id: string): T {
   const element = document.getElementById(id);
-  if (!element) throw new Error(`Required menu element #${id} is missing`);
+  if (!element) throw new Error(`Required screen element #${id} is missing`);
   return element as T;
 }
 
@@ -84,8 +119,7 @@ export class MenuFlow {
   private look: PlayerLook;
   /** The live previews of whichever screen is showing; none outlives its screen. */
   private previews: LookPreview[] = [];
-  /** When the screen now showing appeared, on the performance.now() clock. */
-  private shownAt = 0;
+  private readonly carriedInput = new CarriedInputGuard();
 
   constructor(private readonly options: MenuFlowOptions) {
     this.mode = options.savedMode;
@@ -107,7 +141,7 @@ export class MenuFlow {
     this.customize.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') this.showStyle();
     });
-    for (const menu of [this.modeMenu, this.styleMenu, this.customize]) this.ignoreCarriedInput(menu);
+    for (const menu of [this.modeMenu, this.styleMenu, this.customize]) this.carriedInput.watch(menu);
   }
 
   showStart(): void {
@@ -165,30 +199,7 @@ export class MenuFlow {
   private open(screen: Screen): void {
     this.closePreviews();
     showScreen(screen);
-    this.shownAt = performance.now();
-  }
-
-  /**
-   * Input that began on the screen before must not choose on this one: the
-   * rest of a double click or tap, and the repeats of an Enter key held down.
-   */
-  private ignoreCarriedInput(menu: HTMLElement): void {
-    menu.addEventListener(
-      'click',
-      (event) => {
-        if (!isStrayClick(event.detail, performance.now() - this.shownAt)) return;
-        event.preventDefault();
-        event.stopPropagation();
-      },
-      true,
-    );
-    menu.addEventListener(
-      'keydown',
-      (event) => {
-        if (event.repeat && event.key === 'Enter') event.preventDefault();
-      },
-      true,
-    );
+    this.carriedInput.settle();
   }
 
   private closePreviews(): void {

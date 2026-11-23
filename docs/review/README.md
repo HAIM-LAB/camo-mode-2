@@ -173,3 +173,27 @@ in every row, for comparison. Camo has no emotions.
 All of them were reviewed for tone: a young child's emotions, drawn for clarity
 rather than intensity. Nobody raises a hand in anger, and fear is wide eyes and
 a step back.
+
+---
+
+## Understanding Emotions: the guessing game
+
+The sheets in [`emotion-game/`](emotion-game/) show the Understanding Emotions
+mode, one sheet per style. Every frame is the running game on the keyless mock
+brain, reached through the menus (**Play**, the mode, the style, **Let's
+play!**), at 1440 × 900 and at a 390 × 844 phone viewport.
+
+- [`emotion-game/cartoon.png`](emotion-game/cartoon.png) and
+  [`emotion-game/realistic.png`](emotion-game/realistic.png): the four states
+  of a round, on a laptop and on a phone.
+  - A face round: the camera has zoomed in on one avatar's face, the face
+    shows an emotion, and four named choices wait.
+  - A wrong guess: the game names the emotion and offers **Try again** and
+    **Next**. Nothing marks the guess as a failure, and the steps at the top
+    count rounds, not right answers.
+  - A whole-body round: the same emotions with their postures, after every
+    emotion has been asked on the face.
+  - A right guess: stars come out around the avatar and stay until **Next**.
+
+The avatar is the child's own character, Friend A, or Friend B, lit for a
+close-up by `createFaceLight()`. Camo never takes a round.

@@ -4,26 +4,29 @@ import { ChoiceStorage, browserStorage } from './storage';
  * The game's modes. The child picks one right after Play, and the rest of the
  * game learns the choice as a GameModeId to branch on.
  *
- * Every mode plays in the playroom today. `scene` is here because that will
- * not last: Understanding Emotions is to become a guessing game of its own.
- * Sending a mode somewhere new is two edits in this file, a new GameScene and
- * that scene named on the mode; main.ts then does not compile until it says
- * how the scene starts.
+ * `scene` says where a mode plays. Understanding Emotions is a guessing game
+ * of its own; the other two lead into the playroom and its scenario. Sending
+ * a mode somewhere new is two edits in this file, a new GameScene and that
+ * scene named on the mode; main.ts then does not compile until it says how
+ * the scene starts.
  */
 
-/** Where a mode leads once the menus are done. */
-export type GameScene = 'playroom';
+/**
+ * Where a mode leads once the menus are done: the playroom, or the game that
+ * shows an emotion on an avatar and asks which one it is.
+ */
+export type GameScene = 'playroom' | 'emotion-game';
 
 export interface GameMode {
   readonly id: string;
-  /** The words on the mode's menu button and on the playroom's mode chip. */
+  /** The words on the mode's menu button, and wherever its scene names the mode. */
   readonly label: string;
   readonly scene: GameScene;
 }
 
 /** In menu order. */
 export const GAME_MODES = [
-  { id: 'emotions', label: 'Understanding Emotions', scene: 'playroom' },
+  { id: 'emotions', label: 'Understanding Emotions', scene: 'emotion-game' },
   { id: 'feelings', label: 'Understanding Feelings', scene: 'playroom' },
   { id: 'friendships', label: 'Friendships', scene: 'playroom' },
 ] as const satisfies readonly GameMode[];
@@ -40,6 +43,12 @@ export function gameMode(id: GameModeId): GameMode {
   const mode = GAME_MODES.find((item) => item.id === id);
   if (!mode) throw new Error(`Unknown game mode: ${id}`);
   return mode;
+}
+
+/** The mode an address asks for with `?mode=`, or undefined when it asks for none that exists. */
+export function gameModeFromSearch(search: string): GameModeId | undefined {
+  const asked = new URLSearchParams(search).get('mode');
+  return GAME_MODES.find((mode) => mode.id === asked)?.id;
 }
 
 const STORAGE_KEY = 'camo-mode-2.game-mode';
